@@ -1,0 +1,9 @@
+/_old_
+/.cache
+/protocol
+
+*.o
+*.d
+/compile_commands.json
+
+wlr-task-desktop

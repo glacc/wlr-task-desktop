@@ -12,7 +12,8 @@
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 
-#include "Vector.h"
+#include "HashSet.h"
+
 #include "Wayland/Keyboard.h"
 #include "Wayland/Pointer.h"
 #include "Wayland/ToplevelManager.h"
@@ -29,7 +30,9 @@ struct Wayland
 
     struct wl_shm        *shm;
 
-    struct Vector   outputs;    // typeof(struct Wayland_Output *)
+    // typeof(struct Wayland_Output *)
+    struct HashSet  outputs;
+    
     struct Keyboard keyboard;
     struct Pointer  pointer;
 

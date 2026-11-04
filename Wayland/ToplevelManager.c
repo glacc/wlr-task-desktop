@@ -1,6 +1,10 @@
 #include "ToplevelManager.h"
 
+#include <stdio.h>
+#include <errno.h>
 #include <malloc.h>
+#include <string.h>
+
 #include "ToplevelHandle.h"
 
 bool ToplevelManager_Init(struct ToplevelManager *toplevel_manager)
@@ -8,7 +12,7 @@ bool ToplevelManager_Init(struct ToplevelManager *toplevel_manager)
     if (!toplevel_manager)
         return false;
 
-    if (!Vector_Init(&toplevel_manager->handles, sizeof(struct ToplevelHandle *)))
+    if (!HashSet_Init(&toplevel_manager->handles))
         return false;
 
     return true;
@@ -19,17 +23,19 @@ void ToplevelManager_Cleanup(struct ToplevelManager *toplevel_manager)
     if (!toplevel_manager)
         return;
 
-    if (toplevel_manager->handles.array)
+    struct HashSet_Iter iter = { };
+
+    if (HashSet_IterInit(&iter, &toplevel_manager->handles))
     {
-        for (int i = 0; i < toplevel_manager->handles.count; i++)
+        struct ToplevelHandle *handle = NULL;
+
+        while ((handle = HashSet_IterDel(&iter)))
         {
-            struct ToplevelHandle *handle = *(struct ToplevelHandle **)Vector_Index(&toplevel_manager->handles, i);
-            ToplevelHandle_Cleanup(handle);
-            free(handle);
+            ToplevelHandle_Destroy(handle);
         }
     }
 
-    Vector_Free(&toplevel_manager->handles);
+    HashSet_Cleanup(&toplevel_manager->handles);
 }
 
 static void ToplevelManagerListener_Toplevel(
@@ -40,32 +46,27 @@ static void ToplevelManagerListener_Toplevel(
 {
     struct ToplevelManager *toplevel_manager = data;
 
-    struct ToplevelHandle *handle = calloc(1, sizeof(struct ToplevelHandle));
+    // construct
+    struct ToplevelHandle *toplevel_handle = ToplevelHandle_New();
 
-    if (!handle)
+    if (!toplevel_handle)
     {
-        fprintf(stderr, "failed to allocate memory for ToplevelHandle\n");
+        fprintf(stderr, "failed to construct struct ToplevelHandle\n");
         return;
     }
 
-    if (!Vector_Add(&toplevel_manager->handles, &handle))
+    // put into ToplevelManager
+    if (!HashSet_Add(&toplevel_manager->handles, toplevel_handle, NULL))
     {
-        free (handle);
-        fprintf(stderr, "failed to append ToplevelHandle\n");
+        fprintf(stderr, "failed to add struct ToplevelHandle into ToplevelManager handle HashSet: %s\n", strerror(errno));
+        ToplevelHandle_Destroy(toplevel_handle);
         return;
     }
 
-    if (!Vector_Init(&handle->child, sizeof(struct ToplevelHandle *)))
-    {
-        free(handle);
-        fprintf(stderr, "failed to init child Vector for ToplevelHandle");
-        return;
-    }
+    toplevel_handle->toplevel_handle = zwlr_toplevel_handle;
+    toplevel_handle->manager = toplevel_manager;
 
-    handle->toplevel_handle = zwlr_toplevel_handle;
-    handle->manager = toplevel_manager;
-
-    zwlr_foreign_toplevel_handle_v1_add_listener(handle->toplevel_handle, &ToplevelHandle_wl_listener, handle);
+    zwlr_foreign_toplevel_handle_v1_add_listener(toplevel_handle->toplevel_handle, &ToplevelHandle_wl_listener, toplevel_handle);
 }
 
 static void ToplevelManagerListener_Finished(

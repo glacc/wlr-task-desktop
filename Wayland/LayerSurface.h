@@ -3,7 +3,7 @@
 #include <wayland-client.h>
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 
-struct LayerSurface_Info
+struct LayerSurface
 {
     struct wl_surface *wl_surface;
     struct zwlr_layer_surface_v1 *zwlr_layer_surface;

@@ -48,13 +48,13 @@ static void LayerSurface_Configure(
     uint32_t height
 )
 {
-    struct LayerSurface_Info *state = data;
+    struct LayerSurface *layer_surface = data;
 
     zwlr_layer_surface_v1_set_size(zwlr_layer_surface_v1, width, height);
     zwlr_layer_surface_v1_ack_configure(zwlr_layer_surface_v1, serial);
 
-    state->w = width;
-    state->h = height;
+    layer_surface->w = width;
+    layer_surface->h = height;
 
     printf(
         "layer surface configure:\n"

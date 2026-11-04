@@ -1,31 +1,107 @@
 #include "ToplevelHandle.h"
 
 #include <stdio.h>
+#include <errno.h>
 #include <malloc.h>
 #include <string.h>
 
-void ToplevelHandle_Cleanup(struct ToplevelHandle *toplevel_handle)
+#include "Utility.h"
+
+#include "Output.h"
+
+struct ToplevelHandle *ToplevelHandle_New(void)
+{
+    struct ToplevelHandle *toplevel_handle = calloc(1, sizeof(*toplevel_handle));
+
+    if (!toplevel_handle)
+    {
+        fprintf(stderr, "failed to allocate memory for struct ToplevelHandle: %s", strerror(errno));
+        return NULL;
+    }
+
+    if (!HashSet_Init(&toplevel_handle->child))
+    {
+        fprintf(stderr, "failed to initialize child ref HashSet in struct ToplevelHandle: %s", strerror(errno));
+        free(toplevel_handle);
+        return NULL;
+    }
+
+    if (!HashSet_Init(&toplevel_handle->is_inside_outputs))
+    {
+        fprintf(stderr, "failed to initialize output ref HashSet in struct ToplevelHandle: %s", strerror(errno));
+        HashSet_Cleanup(&toplevel_handle->child);
+        free(toplevel_handle);
+        return NULL;
+    }
+
+    return toplevel_handle;
+}
+
+void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
 {
     if (!toplevel_handle)
         return;
 
+    // free memory for strings
     if (toplevel_handle->title)
         free(toplevel_handle->title);
 
     if (toplevel_handle->app_id)
         free(toplevel_handle->app_id);
 
+    struct HashSet_Iter iter = { };
+    
+    // unref child and cleanup
+    if (HashSet_IterInit(&iter, &toplevel_handle->child))
+    {
+        struct ToplevelHandle *child_handle = NULL;
+
+        while ((child_handle = HashSet_IterDel(&iter)))
+            child_handle->parent = NULL;
+    }
+    HashSet_Cleanup(&toplevel_handle->child);
+
+    // unref from Output and cleanup
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
+    {
+        struct Output *output = NULL;
+
+        while ((output = HashSet_IterDel(&iter)))
+            HashSet_Del(&output->toplevel_handles, toplevel_handle);
+    }
+    HashSet_Cleanup(&toplevel_handle->is_inside_outputs);
+
+    // destroy zwlr handle
     if (toplevel_handle->toplevel_handle)
         zwlr_foreign_toplevel_handle_v1_destroy(toplevel_handle->toplevel_handle);
+
+    free(toplevel_handle);
 }
 
 static void ToplevelHandle_PrintTitleAndAppID(struct ToplevelHandle *toplevel_handle)
 {
-    printf(
-        "%s (%s)",
-        toplevel_handle->title  ? toplevel_handle->title  : "",
-        toplevel_handle->app_id ? toplevel_handle->app_id : ""
-    );
+    printf("%s (%s)", toplevel_handle->title, toplevel_handle->app_id);
+}
+
+void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_handle)
+{
+    if (!toplevel_handle)
+        return;
+
+    struct HashSet_Iter iter = { };
+    
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
+    {
+        struct Output *output = NULL;
+
+        ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
+        printf(" is inside output(s):\n\t");
+
+        while ((output = HashSet_IterNext(&iter)))
+            printf("%s, ", output->name);
+
+        putchar('\n');
+    }
 }
 
 static void ToplevelHandle_Title(
@@ -36,16 +112,7 @@ static void ToplevelHandle_Title(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    if (toplevel_handle->title)
-        free(toplevel_handle->title);
-
-    if (!(toplevel_handle->title = malloc(strlen(title) + 1)))
-    {
-        fprintf(stderr, "failed to allocate memory for title\n");
-        return;
-    }
-    
-    strcpy(toplevel_handle->title, title);
+    Utility_TryReplaceWithAnotherString(&toplevel_handle->title, title);
 
     printf("title: %s\n", title);
 }
@@ -58,16 +125,7 @@ static void ToplevelHandle_AppID(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    if (toplevel_handle->app_id)
-        free(toplevel_handle->app_id);
-
-    if (!(toplevel_handle->app_id = malloc(strlen(app_id) + 1)))
-    {
-        fprintf(stderr, "failed to allocate memory for app_id\n");
-        return;
-    }
-    
-    strcpy(toplevel_handle->app_id, app_id);
+    Utility_TryReplaceWithAnotherString(&toplevel_handle->app_id, app_id);
 
     printf("app_id: %s\n", app_id);
 }
@@ -75,19 +133,41 @@ static void ToplevelHandle_AppID(
 static void ToplevelHandle_OutputEnter(
     void *data,
     struct zwlr_foreign_toplevel_handle_v1 *zwlr_toplevel_handle,
-    struct wl_output *output
+    struct wl_output *wl_output
 )
 {
+    struct ToplevelHandle *toplevel_handle = data;
+    struct Output *output = wl_output_get_user_data(wl_output);
 
+    if (!output)
+        return;
+
+    // ref this->output
+    HashSet_Add(&toplevel_handle->is_inside_outputs, output, NULL);
+    // ref output->this
+    HashSet_Add(&output->toplevel_handles, toplevel_handle, NULL);
+
+    ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
 
 static void ToplevelHandle_OutputLeave(
     void *data,
     struct zwlr_foreign_toplevel_handle_v1 *zwlr_toplevel_handle,
-    struct wl_output *output
+    struct wl_output *wl_output
 )
 {
-    
+    struct ToplevelHandle *toplevel_handle = data;
+    struct Output *output = wl_output_get_user_data(wl_output);
+
+    if (!output)
+        return;
+
+    // unref this->output
+    HashSet_Del(&toplevel_handle->is_inside_outputs, output);
+    // unref output->this
+    HashSet_Del(&output->toplevel_handles, toplevel_handle);
+
+    ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
 
 static void ToplevelHandle_State(
@@ -155,38 +235,39 @@ static void ToplevelHandle_Closed(
 
     // unref if parent exist
     struct ToplevelHandle *parent = toplevel_handle->parent;
+    if (parent)
+        HashSet_Del(&parent->child, toplevel_handle);
 
-    if (parent && parent->child.array)
+    struct HashSet_Iter iter = { };
+
+    // unref child
+    if (HashSet_IterInit(&iter, &toplevel_handle->child))
     {
-        for (int i = 0; i < parent->child.count; i++)
-        {
-            struct ToplevelHandle *child_of_parent = *(struct ToplevelHandle **)Vector_Index(&parent->child, i);
+        struct ToplevelHandle *child = NULL;
 
-            if (child_of_parent == toplevel_handle)
-            {
-                Vector_RemoveAt(&parent->child, i);
-                break;
-            }
-        }
+        while ((child = HashSet_IterDel(&iter)))
+            child->parent = NULL;
     }
+    HashSet_Cleanup(&toplevel_handle->child);
 
-    // cleanup this
-    ToplevelHandle_Cleanup(toplevel_handle);
-
-    for (int i = 0; i < toplevel_handle->manager->handles.count; i++)
+    // unref between Outputs
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
     {
-        struct ToplevelHandle *handle = *(struct ToplevelHandle **)Vector_Index(&toplevel_handle->manager->handles, i);
+        struct Output *output = NULL;
 
-        if (handle == toplevel_handle)
-        {
-            Vector_RemoveAt(&toplevel_handle->manager->handles, i);
-            free(handle);
-            break;
-        }
+        while ((output = HashSet_IterDel(&iter)))
+            HashSet_Del(&output->toplevel_handles, &output);
     }
+    HashSet_Cleanup(&toplevel_handle->is_inside_outputs);
+
+    // unref this from toplevel manager
+    HashSet_Del(&toplevel_handle->manager->handles, toplevel_handle);
 
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
     puts(" closed");
+
+    // deconstruct
+    ToplevelHandle_Destroy(toplevel_handle);
 }
 
 static void ToplevelHandle_Parent(
@@ -202,7 +283,8 @@ static void ToplevelHandle_Parent(
 
     struct ToplevelHandle *parent_handle = zwlr_foreign_toplevel_handle_v1_get_user_data(parent);
 
-    if (!Vector_Add(&parent_handle->child, &toplevel_handle))
+    //if (!Vector_Add(&parent_handle->child, &toplevel_handle))
+    if (!HashSet_Add(&parent_handle->child, toplevel_handle, NULL))
     {
         fprintf(stderr, "failed to append child handle to parent.\n");
         return;
@@ -210,9 +292,8 @@ static void ToplevelHandle_Parent(
 
     toplevel_handle->parent = parent_handle;
 
-    printf("parent of ");
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
-    putchar(':');
+    printf(" is child of:\n\t");
     ToplevelHandle_PrintTitleAndAppID(parent_handle);
     putchar('\n');
 }

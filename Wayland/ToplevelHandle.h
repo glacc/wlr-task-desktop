@@ -2,8 +2,9 @@
 
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 
+#include "HashSet.h"
+
 #include "ToplevelManager.h"
-#include "Output.h"
 
 struct ToplevelHandle
 {
@@ -17,11 +18,14 @@ struct ToplevelHandle
     bool maximized, minimized, activated, fullscreen;
 
     struct ToplevelHandle *parent;
-    struct Vector child;    // typeof(struct ToplevelHandle *)
+    struct HashSet child;    // typeof(struct ToplevelHandle *)
     
-    struct Wayland_Output *output;
+    struct HashSet is_inside_outputs;
 };
 
-extern void ToplevelHandle_Cleanup(struct ToplevelHandle *toplevel_handle);
+extern struct ToplevelHandle *ToplevelHandle_New(void);
+extern void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle);
+
+extern void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_handle);
 
 extern const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_wl_listener;

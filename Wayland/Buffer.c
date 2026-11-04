@@ -1,0 +1,112 @@
+#define _GNU_SOURCE
+
+#include "Buffer.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+
+#include <unistd.h>
+#include <sys/mman.h>
+
+bool Buffer_Create(struct Buffer *buffer, struct Wayland *wayland, int32_t w, int32_t h)
+{
+    if (!buffer || !wayland)
+        return false;
+
+    if (!wayland->shm)
+        return false;
+
+    buffer->buffer = NULL;
+    buffer->pixels = NULL;
+
+    // create file for shm
+    int fd_shm = memfd_create("memf_wl_shm_buffer", MFD_ALLOW_SEALING);
+    struct wl_shm_pool *wl_shm_pool = NULL;
+    bool success = false;
+
+    if (fd_shm == -1)
+    {
+        fprintf(stderr, "failed to create memfd for wl_shm_pool: %s\n", strerror(errno));
+        return false;
+    }
+
+    size_t size = w * h * 4;
+
+    if (ftruncate(fd_shm, size) == -1)
+    {
+        fprintf(stderr, "failed to ftruncate fd for wl_shm_pool: %s\n", strerror(errno));
+        goto End;
+    }
+
+    if ((buffer->pixels = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0)) == MAP_FAILED)
+    {
+        fprintf(stderr, "failed to map memory from fd: %s\n", strerror(errno));
+        goto End;
+    }
+
+    // wl shm pool
+    if (!(wl_shm_pool = wl_shm_create_pool(wayland->shm, fd_shm, size)))
+    {
+        fprintf(stderr, "failed to create shm pool\n");
+        goto End;
+    }
+
+    if (!(buffer->buffer = wl_shm_pool_create_buffer(wl_shm_pool, 0, w, h, w * 4, WL_SHM_FORMAT_ARGB8888)))
+    {
+        fprintf(stderr, "failed to create buffer\n");
+        goto End;
+    }
+
+    buffer->w = w;
+    buffer->h = h;
+    buffer->available = true;
+
+    success = true;
+
+End:
+    close(fd_shm);
+
+    if (wl_shm_pool)
+        wl_shm_pool_destroy(wl_shm_pool);
+
+    if (!success && buffer->pixels)
+        munmap(buffer->pixels, size);
+
+    return success;
+}
+
+void Buffer_Cleanup(struct Buffer *buffer)
+{
+    if (!buffer)
+        return;
+
+    if (buffer->buffer)
+    {
+        wl_buffer_destroy(buffer->buffer);
+        buffer->buffer = NULL;
+    }
+
+    if (buffer->pixels)
+    {
+        munmap(buffer->pixels, buffer->w * buffer->h * 4);
+        buffer->pixels = NULL;
+    }
+
+    buffer->available = false;
+}
+
+static void Buffer_Release(
+    void *data,
+    struct wl_buffer *wl_buffer
+)
+{
+    struct Buffer *buffer = data;
+
+    buffer->available = true;
+}
+
+static const struct wl_buffer_listener Buffer_wl_listener = 
+{
+    .release = Buffer_Release,
+};

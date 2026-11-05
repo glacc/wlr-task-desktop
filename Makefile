@@ -2,10 +2,19 @@
 
 APP_NAME?=wlr-task-desktop
 
-C_DIR=./ ./Test
-PKGS=wayland-client
+C_DIR=./ ./Test ./sw-render/SWRender
+PKGS=wayland-client freetype2 libavformat libavcodec libavutil libswscale
 
+# define
+CFLAGS+=-D_SWRENDER_USE_NON_RGBA_PIXFMT_
+
+# includes
+CFLAGS+=-I./sw-render/ -I./sw-render/CommonInclude
+
+# std
 CFLAGS+=-std=c23
+
+
 
 PKG_CONFIG?=pkg-config
 

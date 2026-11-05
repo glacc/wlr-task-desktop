@@ -5,6 +5,8 @@
 #include <malloc.h>
 #include <string.h>
 
+#include "SWRender/SWRender.h"
+
 void Utility_TryReplaceWithAnotherString(char **dst, const char *src)
 {
     if (!dst)
@@ -21,4 +23,9 @@ void Utility_TryReplaceWithAnotherString(char **dst, const char *src)
 
     if (!(*dst = strdup(src)))
         fprintf(stderr, "failed to duplicate src string: %s\n", strerror(errno));
+}
+
+void Utility_AlphaPremultiplySWRenderBuffer(SWRenderBuffer *buffer)
+{
+    
 }

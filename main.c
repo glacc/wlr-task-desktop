@@ -23,6 +23,11 @@
 
 #include "Test/DesktopLayerSurfaceTest.h"
 
+void TestEnv(void)
+{
+    
+}
+
 int main(int argc, char *argv[])
 {
     struct AppState state = { };

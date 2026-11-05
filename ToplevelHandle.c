@@ -7,9 +7,10 @@
 
 #include "Utility.h"
 
-#include "Output.h"
+#include "AppState.h"
+#include "Desktop.h"
 
-struct ToplevelHandle *ToplevelHandle_New(void)
+struct ToplevelHandle *ToplevelHandle_Create(void)
 {
     struct ToplevelHandle *toplevel_handle = calloc(1, sizeof(*toplevel_handle));
 
@@ -26,9 +27,9 @@ struct ToplevelHandle *ToplevelHandle_New(void)
         return NULL;
     }
 
-    if (!HashSet_Init(&toplevel_handle->is_inside_outputs))
+    if (!HashSet_Init(&toplevel_handle->is_inside_desktops))
     {
-        fprintf(stderr, "failed to initialize output ref HashSet in struct ToplevelHandle: %s", strerror(errno));
+        fprintf(stderr, "failed to initialize desktop ref HashSet in struct ToplevelHandle: %s", strerror(errno));
         HashSet_Cleanup(&toplevel_handle->child);
         free(toplevel_handle);
         return NULL;
@@ -62,14 +63,14 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
     HashSet_Cleanup(&toplevel_handle->child);
 
     // unref from Output and cleanup
-    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
     {
-        struct Output *output = NULL;
+        struct Desktop *desktop = NULL;
 
-        while ((output = HashSet_IterDel(&iter)))
-            HashSet_Del(&output->toplevel_handles, toplevel_handle);
+        while ((desktop = HashSet_IterDel(&iter)))
+            HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
     }
-    HashSet_Cleanup(&toplevel_handle->is_inside_outputs);
+    HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
 
     // destroy zwlr handle
     if (toplevel_handle->toplevel_handle)
@@ -90,15 +91,15 @@ void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_han
 
     struct HashSet_Iter iter = { };
     
-    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
     {
-        struct Output *output = NULL;
+        struct Desktop *desktop = NULL;
 
         ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
-        printf(" is inside output(s):\n\t");
+        printf(" is inside desktop of output(s):\n\t");
 
-        while ((output = HashSet_IterNext(&iter)))
-            printf("%s, ", output->name);
+        while ((desktop = HashSet_IterNext(&iter)))
+            printf("%s, ", desktop->name);
 
         putchar('\n');
     }
@@ -137,15 +138,19 @@ static void ToplevelHandle_OutputEnter(
 )
 {
     struct ToplevelHandle *toplevel_handle = data;
-    struct Output *output = wl_output_get_user_data(wl_output);
+    struct Desktop *desktop = wl_output_get_user_data(wl_output);
 
-    if (!output)
+    if (!desktop)
         return;
 
-    // ref this->output
-    HashSet_Add(&toplevel_handle->is_inside_outputs, output, NULL);
-    // ref output->this
-    HashSet_Add(&output->toplevel_handles, toplevel_handle, NULL);
+    // ref this->desktop
+    HashSet_Add(&toplevel_handle->is_inside_desktops, desktop, NULL);
+    // ref desktop->this
+    HashSet_Add(&desktop->toplevel_handles, toplevel_handle, NULL);
+
+    // determine its desktop to iconify
+    if (toplevel_handle->is_inside_desktops.count == 1)
+        toplevel_handle->iconify_to_desktop = desktop;
 
     ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
@@ -157,15 +162,21 @@ static void ToplevelHandle_OutputLeave(
 )
 {
     struct ToplevelHandle *toplevel_handle = data;
-    struct Output *output = wl_output_get_user_data(wl_output);
+    struct Desktop *desktop = wl_output_get_user_data(wl_output);
 
-    if (!output)
+    if (!desktop)
         return;
 
-    // unref this->output
-    HashSet_Del(&toplevel_handle->is_inside_outputs, output);
-    // unref output->this
-    HashSet_Del(&output->toplevel_handles, toplevel_handle);
+    // unref this->desktop
+    HashSet_Del(&toplevel_handle->is_inside_desktops, desktop);
+    // unref desktop->this
+    HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
+
+    // determine its desktop to iconify
+    if (toplevel_handle->is_inside_desktops.count == 1)
+        toplevel_handle->iconify_to_desktop = desktop;
+    else if (toplevel_handle->is_inside_desktops.count == 0)
+        toplevel_handle->iconify_to_desktop = NULL;
 
     ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
@@ -251,17 +262,17 @@ static void ToplevelHandle_Closed(
     HashSet_Cleanup(&toplevel_handle->child);
 
     // unref between Outputs
-    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_outputs))
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
     {
-        struct Output *output = NULL;
+        struct Desktop *desktop = NULL;
 
-        while ((output = HashSet_IterDel(&iter)))
-            HashSet_Del(&output->toplevel_handles, &output);
+        while ((desktop = HashSet_IterDel(&iter)))
+            HashSet_Del(&desktop->toplevel_handles, &desktop);
     }
-    HashSet_Cleanup(&toplevel_handle->is_inside_outputs);
+    HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
 
     // unref this from toplevel manager
-    HashSet_Del(&toplevel_handle->manager->handles, toplevel_handle);
+    HashSet_Del(&toplevel_handle->app_state->toplevel_handles, toplevel_handle);
 
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
     puts(" closed");

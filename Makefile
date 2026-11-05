@@ -2,7 +2,7 @@
 
 APP_NAME?=wlr-task-desktop
 
-C_DIR=./ ./Wayland/
+C_DIR=./ ./Test
 PKGS=wayland-client
 
 CFLAGS+=-std=c23

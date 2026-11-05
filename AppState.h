@@ -12,29 +12,24 @@
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 
+#include "Vector.h"
 #include "HashSet.h"
 
-#include "Wayland/Keyboard.h"
-#include "Wayland/Pointer.h"
-#include "Wayland/ToplevelManager.h"
+#include "Keyboard.h"
+#include "Pointer.h"
 
-struct Wayland
+struct AppState
 {
     // wl objects
     struct wl_display    *display;
-    struct pollfd        display_pollfd;
 
     struct wl_registry   *registry;
+    uint32_t latest_name;
+
     struct wl_compositor *compositor;
     struct wl_seat       *seat;
 
     struct wl_shm        *shm;
-
-    // typeof(struct Wayland_Output *)
-    struct HashSet  outputs;
-    
-    struct Keyboard keyboard;
-    struct Pointer  pointer;
 
     // wp objects
     struct wp_viewporter *viewporter;
@@ -42,8 +37,22 @@ struct Wayland
 
     // zwlr objects
     struct zwlr_layer_shell_v1 *layer_shell;
-    struct ToplevelManager toplevel_manager;
+    struct zwlr_foreign_toplevel_manager_v1 *toplevel_manager;
+
+    struct Keyboard keyboard;
+    struct Pointer  pointer;
+
+    struct HashSet desktops;            // typeof(struct Desktop *)
+    struct HashSet toplevel_handles;    // typeof(struct ToplevelHandle *)
+
+    // vector for events
+    struct Vector desktops_with_surface_to_create;
+
+    // fd for app event, 0: read, 1: write
+    int pipefds[2];
+    // 0: display_fd, 1: app_fd
+    struct pollfd poll_fds[2];
 };
 
-extern bool Wayland_Initialize(struct Wayland *wayland);
-extern void Wayland_Cleanup(struct Wayland *wayland);
+extern bool AppState_Initialize(struct AppState *wayland);
+extern void AppState_Cleanup(struct AppState *wayland);

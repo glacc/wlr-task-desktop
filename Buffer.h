@@ -2,7 +2,7 @@
 
 #include <stdbool.h>
 
-#include "Wayland.h"
+#include "AppState.h"
 
 struct Buffer_Rect
 {
@@ -34,5 +34,5 @@ static inline struct Buffer_Pixel *Buffer_PtrOffsetByByte(struct Buffer_Pixel *p
     return (struct Buffer_Pixel *)((uint8_t *)ptr + offset);
 }
 
-extern bool Buffer_Create(struct Buffer *buffer, struct Wayland *wayland, int32_t w, int32_t h);
+extern bool Buffer_Init(struct Buffer *buffer, struct AppState *app_state, int32_t w, int32_t h);
 extern void Buffer_Cleanup(struct Buffer *buffer);

@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-#include "Wayland.h"
+#include "AppState.h"
 
 static void Seat_Capabilities(
     void *data,
@@ -10,17 +10,17 @@ static void Seat_Capabilities(
     uint32_t capabilities
 )
 {
-    struct Wayland *wayland = data;
+    struct AppState *app_state = data;
 
     if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD)
-        Keyboard_GetWlObj(&wayland->keyboard, wl_seat);
+        Keyboard_GetWlObj(&app_state->keyboard, wl_seat);
     else
-        Keyboard_DestroyWlObj(&wayland->keyboard);
+        Keyboard_DestroyWlObj(&app_state->keyboard);
     
     if (capabilities & WL_SEAT_CAPABILITY_POINTER)
-        Pointer_GetWlObj(&wayland->pointer, wl_seat);
+        Pointer_GetWlObj(&app_state->pointer, wl_seat);
     else
-        Pointer_DestroyWlObj(&wayland->pointer);
+        Pointer_DestroyWlObj(&app_state->pointer);
 }
 
 static void Seat_Name(

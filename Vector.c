@@ -24,7 +24,7 @@ bool Vector_Init(struct Vector *vector, int element_size)
     return true;
 }
 
-void Vector_Free(struct Vector *vector)
+void Vector_Cleanup(struct Vector *vector)
 {
     if (vector->array == NULL)
         return;
@@ -133,4 +133,39 @@ void *Vector_Index(struct Vector *vector, int index)
 
     int offset = vector->element_size * index;
     return (int8_t *)vector->array + offset;
+}
+
+bool Vector_IterInit(struct Vector_Iter *iter, struct Vector *vector)
+{
+    if (!iter)
+        return false;
+
+    if (!vector || !vector->array)
+    {
+        iter->vector = NULL;
+        iter->index = -1;
+        return false;
+    }
+
+    iter->vector = vector;
+    iter->index = 0;
+
+    return true;
+}
+
+void *Vector_IterNext(struct Vector_Iter *iter)
+{
+    if (!iter)
+        return NULL;
+
+    // iter info not complete, denied
+    if (!iter->vector)
+        return NULL;
+
+    void *ret = Vector_Index(iter->vector, iter->index);
+
+    if (ret)
+        iter->index++;
+
+    return ret;
 }

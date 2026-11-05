@@ -9,12 +9,27 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-bool Buffer_Create(struct Buffer *buffer, struct Wayland *wayland, int32_t w, int32_t h)
+static void Buffer_Release(
+    void *data,
+    struct wl_buffer *wl_buffer
+)
 {
-    if (!buffer || !wayland)
+    struct Buffer *buffer = data;
+
+    buffer->available = true;
+}
+
+static const struct wl_buffer_listener Buffer_wl_listener = 
+{
+    .release = Buffer_Release,
+};
+
+bool Buffer_Init(struct Buffer *buffer, struct AppState *app_state, int32_t w, int32_t h)
+{
+    if (!buffer || !app_state)
         return false;
 
-    if (!wayland->shm)
+    if (!app_state->shm)
         return false;
 
     buffer->buffer = NULL;
@@ -46,7 +61,7 @@ bool Buffer_Create(struct Buffer *buffer, struct Wayland *wayland, int32_t w, in
     }
 
     // wl shm pool
-    if (!(wl_shm_pool = wl_shm_create_pool(wayland->shm, fd_shm, size)))
+    if (!(wl_shm_pool = wl_shm_create_pool(app_state->shm, fd_shm, size)))
     {
         fprintf(stderr, "failed to create shm pool\n");
         goto End;
@@ -61,6 +76,8 @@ bool Buffer_Create(struct Buffer *buffer, struct Wayland *wayland, int32_t w, in
     buffer->w = w;
     buffer->h = h;
     buffer->available = true;
+
+    wl_buffer_add_listener(buffer->buffer, &Buffer_wl_listener, buffer);
 
     success = true;
 
@@ -95,18 +112,3 @@ void Buffer_Cleanup(struct Buffer *buffer)
 
     buffer->available = false;
 }
-
-static void Buffer_Release(
-    void *data,
-    struct wl_buffer *wl_buffer
-)
-{
-    struct Buffer *buffer = data;
-
-    buffer->available = true;
-}
-
-static const struct wl_buffer_listener Buffer_wl_listener = 
-{
-    .release = Buffer_Release,
-};

@@ -10,75 +10,6 @@
 #include "AppState.h"
 #include "Desktop.h"
 
-struct ToplevelHandle *ToplevelHandle_Create(void)
-{
-    struct ToplevelHandle *toplevel_handle = calloc(1, sizeof(*toplevel_handle));
-
-    if (!toplevel_handle)
-    {
-        fprintf(stderr, "failed to allocate memory for struct ToplevelHandle: %s", strerror(errno));
-        return NULL;
-    }
-
-    if (!HashSet_Init(&toplevel_handle->child))
-    {
-        fprintf(stderr, "failed to initialize child ref HashSet in struct ToplevelHandle: %s", strerror(errno));
-        free(toplevel_handle);
-        return NULL;
-    }
-
-    if (!HashSet_Init(&toplevel_handle->is_inside_desktops))
-    {
-        fprintf(stderr, "failed to initialize desktop ref HashSet in struct ToplevelHandle: %s", strerror(errno));
-        HashSet_Cleanup(&toplevel_handle->child);
-        free(toplevel_handle);
-        return NULL;
-    }
-
-    return toplevel_handle;
-}
-
-void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
-{
-    if (!toplevel_handle)
-        return;
-
-    // free memory for strings
-    if (toplevel_handle->title)
-        free(toplevel_handle->title);
-
-    if (toplevel_handle->app_id)
-        free(toplevel_handle->app_id);
-
-    struct HashSet_Iter iter = { };
-    
-    // unref child and cleanup
-    if (HashSet_IterInit(&iter, &toplevel_handle->child))
-    {
-        struct ToplevelHandle *child_handle = NULL;
-
-        while ((child_handle = HashSet_IterDel(&iter)))
-            child_handle->parent = NULL;
-    }
-    HashSet_Cleanup(&toplevel_handle->child);
-
-    // unref from Output and cleanup
-    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
-    {
-        struct Desktop *desktop = NULL;
-
-        while ((desktop = HashSet_IterDel(&iter)))
-            HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
-    }
-    HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
-
-    // destroy zwlr handle
-    if (toplevel_handle->toplevel_handle)
-        zwlr_foreign_toplevel_handle_v1_destroy(toplevel_handle->toplevel_handle);
-
-    free(toplevel_handle);
-}
-
 static void ToplevelHandle_PrintTitleAndAppID(struct ToplevelHandle *toplevel_handle)
 {
     printf("%s (%s)", toplevel_handle->title, toplevel_handle->app_id);
@@ -104,6 +35,8 @@ void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_han
         putchar('\n');
     }
 }
+
+#pragma region WaylandCallbacks
 
 static void ToplevelHandle_Title(
     void *data,
@@ -150,7 +83,10 @@ static void ToplevelHandle_OutputEnter(
 
     // determine its desktop to iconify
     if (toplevel_handle->is_inside_desktops.count == 1)
+    {
         toplevel_handle->iconify_to_desktop = desktop;
+        toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+    }
 
     ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
@@ -174,7 +110,17 @@ static void ToplevelHandle_OutputLeave(
 
     // determine its desktop to iconify
     if (toplevel_handle->is_inside_desktops.count == 1)
-        toplevel_handle->iconify_to_desktop = desktop;
+    {
+        struct Desktop *new_iconify_to_desktop = NULL;
+
+        struct HashSet_Iter iter = { };
+        if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
+            new_iconify_to_desktop = HashSet_IterNext(&iter);
+
+        toplevel_handle->iconify_to_desktop = new_iconify_to_desktop;
+
+        toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+    }
     else if (toplevel_handle->is_inside_desktops.count == 0)
         toplevel_handle->iconify_to_desktop = NULL;
 
@@ -189,9 +135,14 @@ static void ToplevelHandle_State(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    toplevel_handle->maximized = false;
-    toplevel_handle->minimized = false;
-    toplevel_handle->activated = false;
+    bool maximized_old  = toplevel_handle->maximized;
+    bool minimized_old  = toplevel_handle->minimized;
+    bool activated_old  = toplevel_handle->activated;
+    bool fullscreen_old = toplevel_handle->fullscreen;
+
+    toplevel_handle->maximized  = false;
+    toplevel_handle->minimized  = false;
+    toplevel_handle->activated  = false;
     toplevel_handle->fullscreen = false;
 
     uint32_t *state;
@@ -213,16 +164,60 @@ static void ToplevelHandle_State(
                 break;
         }
     }
-
+    
     printf("state of ");
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
+    printf("\n\t");
+
+    // if state maximized changed
+    if (maximized_old != toplevel_handle->maximized)
+        printf("maximized(%d -> %d), ", maximized_old, toplevel_handle->maximized);
+    else
+        printf("maximized(%d), ", toplevel_handle->maximized);
+
+    // if state minimized changed
+    if (minimized_old != toplevel_handle->minimized)
+    {
+        printf("minimized(%d -> %d), ", minimized_old, toplevel_handle->minimized);
+
+        toplevel_handle->arrangement.visible = toplevel_handle->minimized;
+
+        if (toplevel_handle->minimized)
+        {
+            toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = false;
+            
+            if (toplevel_handle->arrangement.recalc_position_when_minimize)
+                toplevel_handle->arrangement.recalc_position = true;
+        }
+
+        toplevel_handle->arrangement.redraw = true;
+    }
+    else
+    {
+        printf("minimized(%d), ", toplevel_handle->minimized);
+    }
+
+    // if state activated changed
+    if (activated_old != toplevel_handle->activated)
+        printf("activated(%d -> %d), ", activated_old, toplevel_handle->activated);
+    else
+        printf("activated(%d), ", toplevel_handle->activated);
+
+    // if state fullscreen changed
+    if (fullscreen_old != toplevel_handle->fullscreen)
+        printf("fullscreen(%d -> %d)\n", fullscreen_old, toplevel_handle->fullscreen);
+    else
+        printf("fullscreen(%d)\n", toplevel_handle->fullscreen);
+
+    /*
     printf(
-        "\n\tmaximized(%d), minimized(%d), activated(%d), fullscreen(%d)\n",
+        "maximized(%d), minimized(%d), activated(%d), fullscreen(%d)\n",
         toplevel_handle->maximized,
         toplevel_handle->minimized,
         toplevel_handle->activated,
         toplevel_handle->fullscreen
     );
+    */
 }
 
 static void ToplevelHandle_Done(
@@ -320,3 +315,85 @@ const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_wl_listener
     .closed       = ToplevelHandle_Closed,
     .parent       = ToplevelHandle_Parent,
 };
+
+#pragma endregion
+
+struct ToplevelHandle *ToplevelHandle_Create(void)
+{
+    struct ToplevelHandle *toplevel_handle = calloc(1, sizeof(*toplevel_handle));
+
+    if (!toplevel_handle)
+    {
+        fprintf(stderr, "failed to allocate memory for struct ToplevelHandle: %s", strerror(errno));
+        return NULL;
+    }
+
+    if (!HashSet_Init(&toplevel_handle->child))
+    {
+        fprintf(stderr, "failed to initialize child ref HashSet in struct ToplevelHandle: %s", strerror(errno));
+        free(toplevel_handle);
+        return NULL;
+    }
+
+    if (!HashSet_Init(&toplevel_handle->is_inside_desktops))
+    {
+        fprintf(stderr, "failed to initialize desktop ref HashSet in struct ToplevelHandle: %s", strerror(errno));
+        HashSet_Cleanup(&toplevel_handle->child);
+        free(toplevel_handle);
+        return NULL;
+    }
+
+    toplevel_handle->arrangement.has_position = false;
+
+    toplevel_handle->arrangement.visible = false;
+
+    toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = true;
+
+    toplevel_handle->arrangement.recalc_position_when_minimize = true;
+    toplevel_handle->arrangement.recalc_position = true;
+
+    toplevel_handle->arrangement.redraw = false;
+
+    return toplevel_handle;
+}
+
+void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
+{
+    if (!toplevel_handle)
+        return;
+
+    // free memory for strings
+    if (toplevel_handle->title)
+        free(toplevel_handle->title);
+
+    if (toplevel_handle->app_id)
+        free(toplevel_handle->app_id);
+
+    struct HashSet_Iter iter = { };
+    
+    // unref child and cleanup
+    if (HashSet_IterInit(&iter, &toplevel_handle->child))
+    {
+        struct ToplevelHandle *child_handle = NULL;
+
+        while ((child_handle = HashSet_IterDel(&iter)))
+            child_handle->parent = NULL;
+    }
+    HashSet_Cleanup(&toplevel_handle->child);
+
+    // unref from Output and cleanup
+    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
+    {
+        struct Desktop *desktop = NULL;
+
+        while ((desktop = HashSet_IterDel(&iter)))
+            HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
+    }
+    HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
+
+    // destroy zwlr handle
+    if (toplevel_handle->toplevel_handle)
+        zwlr_foreign_toplevel_handle_v1_destroy(toplevel_handle->toplevel_handle);
+
+    free(toplevel_handle);
+}

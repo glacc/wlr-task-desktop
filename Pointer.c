@@ -1,50 +1,90 @@
 #include "Pointer.h"
 
 #include <stdio.h>
+#include <malloc.h>
 
-void Pointer_GetWlObj(struct Pointer *pointer, struct wl_seat *seat)
+#include "DoubleBufferedSurface.h"
+
+#include "Utility.h"
+
+static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint32_t button, bool down, uint32_t time)
 {
-    if (!pointer)
+    struct PointerBtnState *btn_state = NULL;
+
+    if (!(btn_state = Pointer_GetBtnState(pointer_state, button)))
         return;
 
-    pointer->wl_pointer = wl_seat_get_pointer(seat);
-    wl_pointer_add_listener(pointer->wl_pointer, &Pointer_wl_listener, pointer);
+    btn_state->pressed = down;
+    btn_state->release = !down;
+    btn_state->is_down = down;
+
+    if (down)
+    {
+        btn_state->pressed_x = pointer_state->x;
+        btn_state->pressed_y = pointer_state->y;
+        btn_state->pressed_time = time;
+    }
+    else
+    {
+        btn_state->release_x = pointer_state->x;
+        btn_state->release_y = pointer_state->y;
+        btn_state->release_time = time;
+
+        btn_state->dragging = false;
+        btn_state->drag_stop = true;
+        btn_state->drag_stop_time = time;
+    }
 }
 
-void Pointer_DestroyWlObj(struct Pointer *pointer)
-{
-    if (!pointer)
-        return;
-
-    if (!pointer->wl_pointer)
-        return;
-
-    wl_pointer_destroy(pointer->wl_pointer);
-    pointer->wl_pointer = NULL;
-}
+#pragma region WaylandCallbacks
 
 static void Pointer_Enter(
     void *data,
     struct wl_pointer *wl_pointer,
     uint32_t serial,
-    struct wl_surface *surface,
+    struct wl_surface *wl_surface,
     wl_fixed_t surface_x,
     wl_fixed_t surface_y
 )
 {
-    struct Pointer *pointer_state = data;
-    pointer_state->wl_surface = surface;
+    struct Pointer *pointer = data;
+    struct DoubleBufferedSurface *surface = wl_surface_get_user_data(wl_surface);
+
+    pointer->surface = surface;
+
+    if (surface)
+    {
+        HashSet_Add(&pointer->surfaces_to_manage, surface, NULL);
+        surface->pointer = pointer;
+        surface->pointer_state.pointer_inside = true;
+
+        printf("pointer entered surface %s\n", surface->name);
+    }
 }
 
 static void Pointer_Leave(
     void *data,
     struct wl_pointer *wl_pointer,
     uint32_t serial,
-    struct wl_surface *surface
+    struct wl_surface *wl_surface
 )
 {
-    struct Pointer *pointer_state = data;
-    pointer_state->wl_surface = NULL;
+    struct Pointer *pointer = data;
+    
+    if (!wl_surface)
+        return;
+
+    struct DoubleBufferedSurface *surface = wl_surface_get_user_data(wl_surface);
+
+    if (pointer->surface == wl_surface_get_user_data(wl_surface))
+        pointer->surface = NULL;
+
+    if (surface)
+    {
+        surface->pointer_state.pointer_inside = false;
+
+        printf("pointer left surface %s\n", surface->name);
+    }
 }
 
 static void Pointer_Motion(
@@ -55,11 +95,56 @@ static void Pointer_Motion(
     wl_fixed_t surface_y
 )
 {
-    struct Pointer *pointer_state = data;
+    struct Pointer *pointer = data;
+    
+    struct DoubleBufferedSurface *surface = pointer->surface;
+
+    if (!surface)
+        return;
+
+    struct PointerState *pointer_state = &surface->pointer_state;
+
+    pointer_state->motion_time = time;
     pointer_state->x = surface_x;
     pointer_state->y = surface_y;
-    
-    printf("motion event to (%d, %d)\n", surface_x, surface_y);
+
+    struct HashSet_Iter iter = { };
+    if (HashSet_IterInit(&iter, &pointer_state->button_states))
+    {
+        struct PointerBtnState *btn_state = NULL;
+
+        while ((btn_state = HashSet_IterNext(&iter)))
+        {
+            if (!btn_state->is_down)
+                continue;
+
+            if (btn_state->dragging)
+                continue;
+
+            wl_fixed_t dist_sq_from_press = Utility_DistSqBetweenVecWlFixed(
+                surface_x,
+                surface_y,
+                btn_state->pressed_x,
+                btn_state->pressed_y
+            );
+
+            if (dist_sq_from_press > POINTER_DRAG_START_THRESHOLD_SQ_WL_FIXED)
+            {
+                btn_state->drag_start = true;
+                btn_state->dragging = true;
+
+                btn_state->drag_start_x = surface_x;
+                btn_state->drag_start_y = surface_y;
+
+                btn_state->drag_start_time = time;
+
+                printf(
+                    "pointer button %u starts dragging from (%d, %d) in %s\n",
+                    btn_state->button, surface_x, surface_y, surface->name
+                );
+            }
+        }
+    }
 }
 
 static void Pointer_Button(
@@ -71,18 +156,33 @@ static void Pointer_Button(
     uint32_t state
 )
 {
-    struct Pointer *pointer_state = data;
+    struct Pointer *pointer = data;
     const char *button_state_str[2] =
     {
         "released",
         "pressed",
     };
+    
+    struct DoubleBufferedSurface *surface = pointer->surface;
+
+    if (!surface)
+        return;
+
+    struct PointerState *pointer_state = &surface->pointer_state;
+
+    Pointer_SetBtnStateInternal(pointer_state, button, (state == WL_POINTER_BUTTON_STATE_PRESSED), time);
 
     printf(
-        "button %u %s at surface position (%d, %d)\n",
-        button, button_state_str[state], pointer_state->x, pointer_state->y
+        "button %u %s in %s (%d, %d)\n",
+        button,
+        button_state_str[state],
+        surface->name,
+        (pointer_state->x + 128) >> 8,
+        (pointer_state->y + 128) >> 8
     );
 }
+
+#pragma region WaylandPointerAxisCallbacks
 
 static void Pointer_Axis(
     void *data,
@@ -90,14 +190,6 @@ static void Pointer_Axis(
     uint32_t time,
     uint32_t axis,
     wl_fixed_t value
-)
-{
-
-}
-
-static void Pointer_Frame(
-    void *data,
-    struct wl_pointer *wl_pointer
 )
 {
 
@@ -152,6 +244,8 @@ static void Pointer_AxisRelativeDirection(
 
 }
 
+#pragma endregion
+
 static void Pointer_Warp(
     void *data,
     struct wl_pointer *wl_pointer,
@@ -159,7 +253,28 @@ static void Pointer_Warp(
     wl_fixed_t surface_y
 )
 {
+    /*
+    struct Pointer *pointer = data;
+    
+    struct DoubleBufferedSurface *surface = pointer->surface;
 
+    if (!surface)
+        return;
+
+    struct PointerState *pointer_state = &surface->pointer_state;
+
+    // necessary?
+    pointer_state->x = surface_x;
+    pointer_state->y = surface_y;
+    */
+}
+
+static void Pointer_Frame(
+    void *data,
+    struct wl_pointer *wl_pointer
+)
+{
+    // pointer event frame ends
 }
 
 const struct wl_pointer_listener Pointer_wl_listener =
@@ -177,3 +292,183 @@ const struct wl_pointer_listener Pointer_wl_listener =
     .axis_relative_direction = Pointer_AxisRelativeDirection,
     .warp = Pointer_Warp,
 };
+
+#pragma endregion
+
+#pragma region PointerBtnState
+
+struct PointerBtnState *PointerBtnState_Create(uint32_t button)
+{
+    struct PointerBtnState *btn_state = calloc(1, sizeof(*btn_state));
+
+    if (!btn_state)
+        return NULL;
+
+    btn_state->button = button;
+
+    return btn_state;
+}
+
+void PointerBtnState_Destroy(struct PointerBtnState* btn_state)
+{
+    if (btn_state)
+        free(btn_state);
+}
+
+size_t PointerBtnState_Hash(void *btn_state)
+{
+    return ((struct PointerBtnState *)btn_state)->button;
+}
+
+bool PointerBtnState_IsEqual(void *l, void *r)
+{
+    struct PointerBtnState *btn_state_l = (struct PointerBtnState *)l;
+    struct PointerBtnState *btn_state_r = (struct PointerBtnState *)r;
+    return (btn_state_l->button == btn_state_r->button);
+}
+
+#pragma endregion
+
+#pragma region PointerState
+
+bool PointerState_Init(struct PointerState *pointer_state)
+{
+    if (!pointer_state)
+        return false;
+
+    pointer_state->x_old = pointer_state->x = 0;
+    pointer_state->y_old = pointer_state->y = 0;
+    pointer_state->pointer_inside = false;
+
+    if (!HashSet_Init(&pointer_state->button_states))
+        return false;
+    pointer_state->button_states.Hash = PointerBtnState_Hash;
+    pointer_state->button_states.IsEqual = PointerBtnState_IsEqual;
+
+    return true;
+}
+
+void PointerState_Cleanup(struct PointerState *pointer_state)
+{
+    if (!pointer_state)
+        return;
+
+    struct HashSet_Iter iter = { };
+    if (HashSet_IterInit(&iter, &pointer_state->button_states))
+    {
+        struct PointerBtnState *btn_state = NULL;
+
+        while ((btn_state = HashSet_IterDel(&iter)))
+            PointerBtnState_Destroy(btn_state);
+    }
+    HashSet_Cleanup(&pointer_state->button_states);
+}
+
+void PointerState_PostDispatch(struct PointerState *pointer_state)
+{
+    if (!pointer_state)
+        return;
+
+    pointer_state->x_old = pointer_state->x;
+    pointer_state->y_old = pointer_state->y;
+    pointer_state->motion_time_old = pointer_state->motion_time;
+
+    struct HashSet_Iter iter = { };
+    if (HashSet_IterInit(&iter, &pointer_state->button_states))
+    {
+        struct PointerBtnState *btn_state = NULL;
+
+        while ((btn_state = HashSet_IterNext(&iter)))
+        {
+            btn_state->pressed = false;
+            btn_state->release = false;
+
+            btn_state->drag_start = false;
+            btn_state->drag_stop = false;
+        }
+    }
+}
+
+#pragma endregion
+
+bool Pointer_Init(struct Pointer *pointer)
+{
+    if (!pointer)
+        return false;
+
+    if (!HashSet_Init(&pointer->surfaces_to_manage))
+        return false;
+
+    return true;
+}
+
+void Pointer_Cleanup(struct Pointer *pointer)
+{
+    if (!pointer)
+        return;
+
+    // unref
+    // can i avoid this kind of bidirection ref?
+    struct HashSet_Iter iter = { };
+    if (HashSet_IterInit(&iter, &pointer->surfaces_to_manage))
+    {
+        struct DoubleBufferedSurface *surface = NULL;
+
+        while ((surface = HashSet_IterDel(&iter)))
+        {
+            if (surface->pointer == pointer)
+                surface->pointer = NULL;
+        }
+    }
+    HashSet_Cleanup(&pointer->surfaces_to_manage);
+
+    if (pointer->wl_pointer)
+    {
+        wl_pointer_destroy(pointer->wl_pointer);
+        pointer->wl_pointer = NULL;
+    }
+}
+
+void Pointer_GetWlObj(struct Pointer *pointer, struct wl_seat *seat)
+{
+    if (!pointer)
+        return;
+
+    pointer->wl_pointer = wl_seat_get_pointer(seat);
+    wl_pointer_add_listener(pointer->wl_pointer, &Pointer_wl_listener, pointer);
+}
+
+void Pointer_DestroyWlObj(struct Pointer *pointer)
+{
+    if (!pointer)
+        return;
+
+    if (!pointer->wl_pointer)
+        return;
+
+    wl_pointer_destroy(pointer->wl_pointer);
+    pointer->wl_pointer = NULL;
+}
+
+struct PointerBtnState *Pointer_GetBtnState(struct PointerState *pointer_state, uint32_t button)
+{
+    if (!pointer_state)
+        return NULL;
+
+    struct PointerBtnState btn_state_to_find = { .button = button };
+    struct PointerBtnState *btn_state = NULL;
+
+    if ((btn_state = HashSet_Find(&pointer_state->button_states, &btn_state_to_find)))
+        return btn_state;
+
+    if (!(btn_state = PointerBtnState_Create(button)))
+        return NULL;
+    
+    if (!HashSet_Add(&pointer_state->button_states, btn_state, NULL))
+    {
+        PointerBtnState_Destroy(btn_state);
+        return NULL;
+    }
+
+    return btn_state;
+}

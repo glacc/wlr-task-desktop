@@ -7,6 +7,12 @@
 #include "HashSet.h"
 #include "DesktopLayerSurface.h"
 
+#include "Vector.h"
+
+// TODO: make icon size configurable?
+#define DESKTOP_DEFAULT_ICON_SIZE_X 80
+#define DESKTOP_DEFAULT_ICON_SIZE_Y 96
+
 struct Desktop
 {
     struct wl_output *wl_output;
@@ -26,6 +32,9 @@ struct Desktop
     struct HashSet toplevel_handles;
 
     struct DesktopLayerSurface surface;
+
+    struct Vector damage_bounds; // typeof(SWRenderBoundI)
+    bool damaged;
 };
 
 extern const struct wl_output_listener Desktop_output_wl_listener;
@@ -35,3 +44,8 @@ extern bool Desktop_IsEqual(void *l, void *r);
 
 extern struct Desktop *Desktop_Create(void);
 extern void Desktop_Destroy(struct Desktop *desktop);
+
+extern void Desktop_Update(struct Desktop *desktop);
+
+extern bool Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w, int32_t h);
+extern void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop);

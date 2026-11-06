@@ -4,18 +4,33 @@
 #include "AppState.h"
 
 #include "Vector.h"
+#include "SWRender/SWRender.h"
+
+#include "Pointer.h"
+#include "Keyboard.h"
 
 struct DoubleBufferedSurface
 {
-    struct wl_surface *surface;
+    struct wl_surface  *surface;
+    struct wl_callback *callback;
 
     struct Buffer buffer[2];
     struct Vector damage_rects[2];  // typeof(struct Buffer_Rect)
-    unsigned int current_buffer;
+    
+    unsigned int commit_count;
+    unsigned int commit_time[2];
+    unsigned int callback_followed_commit_count;
 
-    int32_t w, h;
+    SWRenderBuffer swr_buf;
 
-    struct Buffer_Pixel *pixels;
+    char *name;
+    
+    // keyboard
+    struct Keyboard *keyboard;
+
+    // pointer
+    struct Pointer *pointer;
+    struct PointerState pointer_state;
 };
 
 extern bool DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface, struct AppState *app_state);
@@ -24,3 +39,5 @@ extern void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface)
 
 extern bool DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, const struct Buffer_Rect *rect);
 extern bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface);
+
+extern bool DoubleBufferedSurface_SetName(struct DoubleBufferedSurface *surface, const char *name);

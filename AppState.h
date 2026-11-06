@@ -56,3 +56,5 @@ struct AppState
 
 extern bool AppState_Initialize(struct AppState *wayland);
 extern void AppState_Cleanup(struct AppState *wayland);
+
+extern bool AppState_DispatchAllEvents(struct AppState *app_state);

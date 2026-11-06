@@ -10,8 +10,12 @@
 
 #include "Desktop.h"
 #include "Seat.h"
+#include "Keyboard.h"
+#include "Pointer.h"
 #include "ToplevelManager.h"
 #include "ToplevelHandle.h"
+
+#pragma region WaylandRegistry
 
 static inline void WlInterfaceVerMin(uint32_t *version, uint32_t supported)
 {
@@ -149,6 +153,8 @@ const static struct wl_registry_listener wl_registry_listener =
     .global_remove = AppState_RegistryListenerGlobalRemove,
 };
 
+#pragma endregion
+
 bool AppState_Initialize(struct AppState *app_state)
 {
     if (!app_state)
@@ -188,6 +194,15 @@ bool AppState_Initialize(struct AppState *app_state)
     fcntl(app_state->pipefds[0], F_SETFL, fcntl(app_state->pipefds[0], F_GETFL) | O_NONBLOCK);
     app_state->poll_fds[1].fd = app_state->pipefds[0];
     app_state->poll_fds[1].events = POLLIN;
+
+    // TODO: keyboard
+
+    // pointer
+    if (!Pointer_Init(&app_state->pointer))
+    {
+        fprintf(stderr, "failed to init struct Pointer: %s\n", strerror(errno));
+        goto Error;
+    }
     
     // hashset for desktops
     if (!HashSet_Init(&app_state->desktops))
@@ -238,6 +253,9 @@ Error:
     HashSet_Cleanup(&app_state->desktops);
     HashSet_Cleanup(&app_state->toplevel_handles);
 
+    //Keyboard_Cleanup(&app_state->keyboard);
+    Pointer_Cleanup(&app_state->pointer);
+
     wl_display_disconnect(app_state->display);
 
     return false;
@@ -275,7 +293,7 @@ void AppState_Cleanup(struct AppState *app_state)
 
     // wl objects
     Keyboard_DestroyWlObj(&app_state->keyboard);
-    Pointer_DestroyWlObj(&app_state->pointer);
+    Pointer_Cleanup(&app_state->pointer);
 
     if (HashSet_IterInit(&hashset_iter, &app_state->desktops))
     {
@@ -298,4 +316,120 @@ void AppState_Cleanup(struct AppState *app_state)
 
     if (app_state->display)
         wl_display_disconnect(app_state->display);
+}
+
+#include "Test/DesktopLayerSurfaceTest.h"
+
+static void AppState_ProcessDesktopCreation(struct AppState *app_state)
+{
+    struct Vector_Iter iter = { };
+
+    wl_display_roundtrip(app_state->display);
+
+    if (Vector_IterInit(&iter, &app_state->desktops_with_surface_to_create))
+    {
+        struct Desktop **ptr_desktop_ptr = NULL;
+        while ((ptr_desktop_ptr = (struct Desktop **)Vector_IterNext(&iter)))
+        {
+            struct Desktop *desktop = *ptr_desktop_ptr;
+
+            DesktopLayerSurface_Init(&desktop->surface, app_state, desktop->wl_output);
+            DoubleBufferedSurface_SetName(&desktop->surface.surface, desktop->name);
+
+            // test
+            TestPatternDrawOnDesktopLayerSurface(&desktop->surface);
+            TestSWRenderOnDesktopLayerSurface(&desktop->surface);
+
+            DoubleBufferedSurface_AddDamage(&desktop->surface.surface, NULL);
+            DoubleBufferedSurface_TryCommit(&desktop->surface.surface);
+
+            Desktop_AddDamage(desktop, 0, 0, desktop->w, desktop->h);
+
+            wl_display_roundtrip(app_state->display);
+        }
+    }
+    Vector_Clear(&app_state->desktops_with_surface_to_create);
+}
+
+static void AppState_ProcessDesktopUpdate(struct AppState *app_state)
+{
+    struct HashSet_Iter iter_hashset = { };
+    if (HashSet_IterInit(&iter_hashset, &app_state->desktops))
+    {
+        struct Desktop *desktop = NULL;
+
+        while ((desktop = HashSet_IterNext(&iter_hashset)))
+            Desktop_CheckRedrawAndTryCommit(desktop);
+    }
+}
+
+bool AppState_DispatchAllEvents(struct AppState *app_state)
+{
+    wl_display_prepare_read(app_state->display);
+
+    int poll_result = poll(app_state->poll_fds, sizeof(app_state->poll_fds) / sizeof(*app_state->poll_fds), -1);
+
+    if (poll_result < 0)
+    {
+        if (poll_result == EINTR)
+            return true;
+        else
+        {
+            fprintf(stderr, "fail while polling fds: %s\n", strerror(errno));
+            return false;
+        }
+    }
+    
+    // display fd
+    if (app_state->poll_fds[0].revents & POLLIN)
+    {
+        if (wl_display_read_events(app_state->display) == -1)
+        {
+            fprintf(stderr, "error while reading events display: %s\n", strerror(errno));
+            return false;
+        }
+        if (wl_display_dispatch_pending(app_state->display) == -1)
+        {
+            fprintf(stderr, "error to dispatch from display: %s\n", strerror(errno));
+            return false;
+        }
+        app_state->poll_fds[0].revents *= ~POLLIN;
+    }
+    else
+        wl_display_cancel_read(app_state->display);
+
+    // pipe fd
+    if (app_state->poll_fds[1].revents & POLLIN)
+    {
+        // desktop creation
+        AppState_ProcessDesktopCreation(app_state);
+
+        // desktop update
+        AppState_ProcessDesktopUpdate(app_state);
+
+        // clear
+        char discard_buf[128];
+        while (read(app_state->pipefds[0], discard_buf, sizeof(discard_buf)) > 0);
+
+        app_state->poll_fds[1].revents *= ~POLLIN;
+    }
+
+    // --------------------------------- any ----------------------------------
+    struct HashSet_Iter iter_hashset = { };
+
+    // desktop update and redraw
+    if (HashSet_IterInit(&iter_hashset, &app_state->desktops))
+    {
+        struct Desktop *desktop = NULL;
+        
+        while ((desktop = HashSet_IterNext(&iter_hashset)))
+        {
+            Desktop_Update(desktop);
+            Desktop_CheckRedrawAndTryCommit(desktop);
+        }
+    }
+
+    wl_display_flush(app_state->display);
+
+    return true;
 }

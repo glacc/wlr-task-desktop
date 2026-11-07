@@ -7,12 +7,14 @@
 
 #include "Utility.h"
 
-#include "AppState.h"
+#include "Globals.h"
 #include "Desktop.h"
+
+int ToplevelHandle_debug_verbosity = 1;
 
 static void ToplevelHandle_PrintTitleAndAppID(struct ToplevelHandle *toplevel_handle)
 {
-    printf("%s (%s)", toplevel_handle->title, toplevel_handle->app_id);
+    printf("'%s' (%s)", toplevel_handle->title, toplevel_handle->app_id);
 }
 
 void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_handle)
@@ -36,6 +38,15 @@ void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_han
     }
 }
 
+void ToplevelHandle_PrintIconifyToDesktop(struct ToplevelHandle *toplevel_handle)
+{
+    ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
+    printf(
+        "is inside desktop of output: %s\n",
+        toplevel_handle->iconify_to_desktop ? toplevel_handle->iconify_to_desktop->name : "NULL"
+    );
+}
+
 #pragma region WaylandCallbacks
 
 static void ToplevelHandle_Title(
@@ -46,7 +57,14 @@ static void ToplevelHandle_Title(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
+    bool had_title = (toplevel_handle->title != NULL);
+
     Utility_TryReplaceWithAnotherString(&toplevel_handle->title, title);
+    
+    toplevel_handle->arrangement.redraw = true;
+
+    if (ToplevelHandle_debug_verbosity < 1)
+        return;
 
     printf("title: %s\n", title);
 }
@@ -59,7 +77,12 @@ static void ToplevelHandle_AppID(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
+    bool had_app_id = (toplevel_handle->app_id == NULL);
+
     Utility_TryReplaceWithAnotherString(&toplevel_handle->app_id, app_id);
+
+    if (ToplevelHandle_debug_verbosity < 1)
+        return;
 
     printf("app_id: %s\n", app_id);
 }
@@ -86,7 +109,13 @@ static void ToplevelHandle_OutputEnter(
     {
         toplevel_handle->iconify_to_desktop = desktop;
         toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+
+        if (ToplevelHandle_debug_verbosity >= 1)
+            ToplevelHandle_PrintIconifyToDesktop(toplevel_handle);
     }
+
+    if (ToplevelHandle_debug_verbosity < 2)
+        return;
 
     ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
@@ -120,9 +149,15 @@ static void ToplevelHandle_OutputLeave(
         toplevel_handle->iconify_to_desktop = new_iconify_to_desktop;
 
         toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+
+        if (ToplevelHandle_debug_verbosity >= 1)
+            ToplevelHandle_PrintIconifyToDesktop(toplevel_handle);
     }
     else if (toplevel_handle->is_inside_desktops.count == 0)
         toplevel_handle->iconify_to_desktop = NULL;
+
+    if (ToplevelHandle_debug_verbosity < 2)
+        return;
 
     ToplevelHandle_PrintIsInsideWhichOutput(toplevel_handle);
 }
@@ -197,6 +232,9 @@ static void ToplevelHandle_State(
         printf("minimized(%d), ", toplevel_handle->minimized);
     }
 
+    if (ToplevelHandle_debug_verbosity < 1)
+        return;
+
     // if state activated changed
     if (activated_old != toplevel_handle->activated)
         printf("activated(%d -> %d), ", activated_old, toplevel_handle->activated);
@@ -208,16 +246,6 @@ static void ToplevelHandle_State(
         printf("fullscreen(%d -> %d)\n", fullscreen_old, toplevel_handle->fullscreen);
     else
         printf("fullscreen(%d)\n", toplevel_handle->fullscreen);
-
-    /*
-    printf(
-        "maximized(%d), minimized(%d), activated(%d), fullscreen(%d)\n",
-        toplevel_handle->maximized,
-        toplevel_handle->minimized,
-        toplevel_handle->activated,
-        toplevel_handle->fullscreen
-    );
-    */
 }
 
 static void ToplevelHandle_Done(
@@ -226,6 +254,9 @@ static void ToplevelHandle_Done(
 )
 {
     struct ToplevelHandle *toplevel_handle = data;
+
+    if (ToplevelHandle_debug_verbosity < 2)
+        return;
     
     printf("update done: ");
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
@@ -239,41 +270,23 @@ static void ToplevelHandle_Closed(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    // unref if parent exist
-    struct ToplevelHandle *parent = toplevel_handle->parent;
-    if (parent)
-        HashSet_Del(&parent->child, toplevel_handle);
-
-    struct HashSet_Iter iter = { };
-
-    // unref child
-    if (HashSet_IterInit(&iter, &toplevel_handle->child))
+    if (ToplevelHandle_debug_verbosity >= 1)
     {
-        struct ToplevelHandle *child = NULL;
-
-        while ((child = HashSet_IterDel(&iter)))
-            child->parent = NULL;
+        ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
+        puts(" closed");
     }
-    HashSet_Cleanup(&toplevel_handle->child);
 
-    // unref between Outputs
-    if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
-    {
-        struct Desktop *desktop = NULL;
-
-        while ((desktop = HashSet_IterDel(&iter)))
-            HashSet_Del(&desktop->toplevel_handles, &desktop);
-    }
-    HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
+    toplevel_handle->arrangement.redraw  = true;
+    toplevel_handle->arrangement.visible = false;
 
     // unref this from toplevel manager
-    HashSet_Del(&toplevel_handle->app_state->toplevel_handles, toplevel_handle);
+    HashSet_Del(&global_toplevel_handles, toplevel_handle);
 
-    ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
-    puts(" closed");
+    // deconstruct pending
+    Vector_Add(&global_toplevel_handle_to_destroy, &toplevel_handle);
 
-    // deconstruct
-    ToplevelHandle_Destroy(toplevel_handle);
+    //// deconstruct
+    //ToplevelHandle_Destroy(toplevel_handle);
 }
 
 static void ToplevelHandle_Parent(
@@ -290,7 +303,7 @@ static void ToplevelHandle_Parent(
     struct ToplevelHandle *parent_handle = zwlr_foreign_toplevel_handle_v1_get_user_data(parent);
 
     //if (!Vector_Add(&parent_handle->child, &toplevel_handle))
-    if (!HashSet_Add(&parent_handle->child, toplevel_handle, NULL))
+    if (!HashSet_Add(&parent_handle->children, toplevel_handle, NULL))
     {
         fprintf(stderr, "failed to append child handle to parent.\n");
         return;
@@ -298,13 +311,16 @@ static void ToplevelHandle_Parent(
 
     toplevel_handle->parent = parent_handle;
 
+    if (ToplevelHandle_debug_verbosity < 2)
+        return;
+
     ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
     printf(" is child of:\n\t");
     ToplevelHandle_PrintTitleAndAppID(parent_handle);
     putchar('\n');
 }
 
-const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_wl_listener =
+const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_listener =
 {
     .title        = ToplevelHandle_Title,
     .app_id       = ToplevelHandle_AppID,
@@ -328,7 +344,7 @@ struct ToplevelHandle *ToplevelHandle_Create(void)
         return NULL;
     }
 
-    if (!HashSet_Init(&toplevel_handle->child))
+    if (!HashSet_Init(&toplevel_handle->children))
     {
         fprintf(stderr, "failed to initialize child ref HashSet in struct ToplevelHandle: %s", strerror(errno));
         free(toplevel_handle);
@@ -338,7 +354,7 @@ struct ToplevelHandle *ToplevelHandle_Create(void)
     if (!HashSet_Init(&toplevel_handle->is_inside_desktops))
     {
         fprintf(stderr, "failed to initialize desktop ref HashSet in struct ToplevelHandle: %s", strerror(errno));
-        HashSet_Cleanup(&toplevel_handle->child);
+        HashSet_Cleanup(&toplevel_handle->children);
         free(toplevel_handle);
         return NULL;
     }
@@ -369,17 +385,22 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
     if (toplevel_handle->app_id)
         free(toplevel_handle->app_id);
 
+    // unref if parent exist
+    struct ToplevelHandle *parent = toplevel_handle->parent;
+    if (parent)
+        HashSet_Del(&parent->children, toplevel_handle);
+
     struct HashSet_Iter iter = { };
     
     // unref child and cleanup
-    if (HashSet_IterInit(&iter, &toplevel_handle->child))
+    if (HashSet_IterInit(&iter, &toplevel_handle->children))
     {
         struct ToplevelHandle *child_handle = NULL;
 
         while ((child_handle = HashSet_IterDel(&iter)))
             child_handle->parent = NULL;
     }
-    HashSet_Cleanup(&toplevel_handle->child);
+    HashSet_Cleanup(&toplevel_handle->children);
 
     // unref from Output and cleanup
     if (HashSet_IterInit(&iter, &toplevel_handle->is_inside_desktops))
@@ -387,9 +408,19 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
         struct Desktop *desktop = NULL;
 
         while ((desktop = HashSet_IterDel(&iter)))
+        {
+            // TODO: redraw to remove icon of closed application
+
             HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
+
+            if (desktop->selected_handle == toplevel_handle)
+                desktop->selected_handle = NULL;
+        }
     }
     HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
+
+    //// unref this from toplevel manager
+    //HashSet_Del(&global_toplevel_handles, toplevel_handle);
 
     // destroy zwlr handle
     if (toplevel_handle->toplevel_handle)

@@ -40,7 +40,7 @@ struct ToplevelHandle
     bool maximized, minimized, activated, fullscreen;
 
     struct ToplevelHandle *parent;
-    struct HashSet child;    // typeof(struct ToplevelHandle *)
+    struct HashSet children;    // typeof(struct ToplevelHandle *)
     
     struct HashSet is_inside_desktops;
 
@@ -55,4 +55,4 @@ extern void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle);
 
 extern void ToplevelHandle_PrintIsInsideWhichOutput(struct ToplevelHandle *toplevel_handle);
 
-extern const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_wl_listener;
+extern const struct zwlr_foreign_toplevel_handle_v1_listener ToplevelHandle_listener;

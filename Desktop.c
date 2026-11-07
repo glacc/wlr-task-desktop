@@ -10,6 +10,11 @@
 
 #include "ToplevelHandle.h"
 
+#include "Globals.h"
+
+#include "SWRender/FTEssentials.h"
+#include "SWRender/FTRender.h"
+
 #pragma region WaylandListener
 
 static void Desktop_OutputGeometry(
@@ -205,7 +210,7 @@ void Desktop_Destroy(struct Desktop *desktop)
     HashSet_Cleanup(&desktop->toplevel_handles);
     Vector_Cleanup(&desktop->damage_bounds);
 
-    DesktopLayerSurface_Cleanup(&desktop->surface);
+    DesktopLayerSurface_Cleanup(&desktop->desktop_layer_surface);
 
     // destory wl_output object
     if (desktop->wl_output)
@@ -219,6 +224,66 @@ void Desktop_Update(struct Desktop *desktop)
     if (!desktop)
         return;
 
+    struct PointerState *pointer_state = &desktop->desktop_layer_surface.surface.pointer_state;
+    struct PointerBtnState *lmb_state = Pointer_GetBtnState(pointer_state, 272);
+
+    // update selected icon state
+
+    //if (!lmb_state->is_down)
+    //    desktop->selected_handle = NULL;
+
+    if (desktop->selected_handle && desktop->selected_handle->arrangement.visible)
+    {
+        if (lmb_state->double_click)
+        {
+            zwlr_foreign_toplevel_handle_v1_unset_minimized(
+                desktop->selected_handle->toplevel_handle
+            );
+        }
+
+        if (lmb_state->drag_start)
+        {
+            desktop->icon_drag_start_x = desktop->selected_handle->arrangement.x;
+            desktop->icon_drag_start_y = desktop->selected_handle->arrangement.y;
+            desktop->selected_handle->arrangement.recalc_position_when_minimize = false;
+        }
+
+        if (lmb_state->dragging)
+        {
+            // redraw only when mouse moved to prevent event looping
+            if ((pointer_state->x_int != pointer_state->x_old_int)
+                || (pointer_state->y_int != pointer_state->y_old_int))
+            {
+                int drag_dist_x = pointer_state->x_int - lmb_state->drag_start_x_int;
+                int drag_dist_y = pointer_state->y_int - lmb_state->drag_start_y_int;
+
+                // clear its old position
+                Desktop_AddDamage(
+                    desktop,
+                    desktop->selected_handle->arrangement.x,
+                    desktop->selected_handle->arrangement.y,
+                    DESKTOP_DEFAULT_ICON_SIZE_X,
+                    DESKTOP_DEFAULT_ICON_SIZE_Y
+                );
+
+                // set new position and request redraw
+                desktop->selected_handle->arrangement.x = desktop->icon_drag_start_x + drag_dist_x;
+                desktop->selected_handle->arrangement.y = desktop->icon_drag_start_y + drag_dist_y;
+                desktop->selected_handle->arrangement.redraw = true;
+            }
+        }
+    }
+    else
+    {
+        // clear some state when selected handle disappeared or invisible
+
+        // ...?
+    }
+
+    // used to check state change
+    bool pressed_on_icon = false;
+
+    // lookup each toplevel handle
     struct HashSet_Iter iter = { };
 
     if (HashSet_IterInit(&iter, &desktop->toplevel_handles))
@@ -230,7 +295,6 @@ void Desktop_Update(struct Desktop *desktop)
             struct ToplevelHandle_DesktopIconArrangement *arrangement =
                 &toplevel_handle->arrangement;
 
-            //SWRenderBoundI bound_this_icon = SWRender_RectToBoundI((SWRenderRectI)
             SWRenderRectI rect_this_icon =
             {
                 arrangement->x,
@@ -243,21 +307,25 @@ void Desktop_Update(struct Desktop *desktop)
             if (arrangement->redraw && arrangement->has_position)
             {
                 Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DESKTOP_DEFAULT_ICON_SIZE_X, DESKTOP_DEFAULT_ICON_SIZE_Y);
+                printf("redraw request '%s' on (%d, %d)\n", toplevel_handle->title, arrangement->x, arrangement->y);
                 arrangement->redraw = false;
             }
 
+            // skip if not visible
             if (!arrangement->visible)
                 continue;
 
+            // recalculate position?
             if (arrangement->recalc_position || !arrangement->has_position)
             {
                 int new_pos_x = 0;
-                int new_pos_y = desktop->surface.h - DESKTOP_DEFAULT_ICON_SIZE_Y - 1;
+                int new_pos_y = desktop->desktop_layer_surface.h - DESKTOP_DEFAULT_ICON_SIZE_Y - 1;
 
                 rect_this_icon.x = new_pos_x;
                 rect_this_icon.y = new_pos_y;
 
-                SWRenderBoundI bound_this_icon = SWRender_RectToBoundI(rect_this_icon);
+                SWRenderBoundI bounds_this_icon;
+                SWRender_RectToBoundInt(&bounds_this_icon, &rect_this_icon);
 
                 // find position
                 // TODO: optimize this o(n^2) loop?
@@ -281,10 +349,13 @@ void Desktop_Update(struct Desktop *desktop)
                             struct ToplevelHandle_DesktopIconArrangement *arrangement_overlap_chk =
                                 &toplevel_handle_overlap_chk->arrangement;
 
+                            // skip invisible
                             if (!arrangement_overlap_chk->visible || !arrangement_overlap_chk->has_position)
                                 continue;
 
-                            SWRenderBoundI bound_overlap_chk_icon = SWRender_RectToBoundI((SWRenderRectI)
+                            // do overlap check
+                            SWRenderBoundI bound_overlap_chk_icon;
+                            SWRender_RectToBoundInt(&bound_overlap_chk_icon, &(SWRenderRectI)
                             {
                                 arrangement_overlap_chk->x,
                                 arrangement_overlap_chk->y,
@@ -292,7 +363,7 @@ void Desktop_Update(struct Desktop *desktop)
                                 DESKTOP_DEFAULT_ICON_SIZE_Y,
                             });
 
-                            if (SWRender_GetIntersectionBetweenBoundI(&bound_this_icon, &bound_overlap_chk_icon, NULL))
+                            if (SWRender_GetIntersectionBetweenBoundInt(&bounds_this_icon, &bound_overlap_chk_icon, NULL))
                             {
                                 has_overlap = true;
                                 break;
@@ -313,7 +384,7 @@ void Desktop_Update(struct Desktop *desktop)
                     // update bounds to new position
                     rect_this_icon.x = new_pos_x;
                     rect_this_icon.y = new_pos_y;
-                    bound_this_icon = SWRender_RectToBoundI(rect_this_icon);
+                    SWRender_RectToBoundInt(&bounds_this_icon, &rect_this_icon);
                 }
 
                 arrangement->x = new_pos_x;
@@ -321,7 +392,11 @@ void Desktop_Update(struct Desktop *desktop)
 
                 // redraw new position
                 if (arrangement->visible)
+                {
                     Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DESKTOP_DEFAULT_ICON_SIZE_X, DESKTOP_DEFAULT_ICON_SIZE_Y);
+
+                    printf("redraw request '%s' on (%d, %d)\n", toplevel_handle->title ? toplevel_handle->title : "NULL", arrangement->x, arrangement->y);
+                }
 
                 arrangement->redraw = false;
 
@@ -329,8 +404,19 @@ void Desktop_Update(struct Desktop *desktop)
 
                 arrangement->has_position = true;
             }
+
+            if (lmb_state->pressed && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
+            {
+                pressed_on_icon = true;
+                desktop->selected_handle = toplevel_handle;
+            }
         }
     }
+
+    if (lmb_state->pressed && !pressed_on_icon)
+        desktop->selected_handle = NULL;
+
+    PointerState_PostDispatch(pointer_state);
 }
 
 bool Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w, int32_t h)
@@ -341,7 +427,8 @@ bool Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w,
     if (w <= 0 || h <= 0)
         return false;
 
-    SWRenderBoundI bounds = SWRender_RectToBoundI((SWRenderRectI){ x, y, w, h });
+    SWRenderBoundI bounds;
+    SWRender_RectToBoundInt(&bounds, &(SWRenderRectI){ x, y, w, h });
 
     return Vector_Add(&desktop->damage_bounds, &bounds);
 }
@@ -351,7 +438,7 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
     if (!desktop)
         return;
 
-    if (!desktop->surface.surface.surface)
+    if (!desktop->desktop_layer_surface.surface.surface)
         return;
 
     struct Vector_Iter iter_damage_bounds = { };
@@ -360,111 +447,102 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
     {
         desktop->damaged = true;
 
-        int swr_buf_w = desktop->surface.surface.swr_buf.w;
-        int swr_buf_h = desktop->surface.surface.swr_buf.h;
+        int swr_buf_w = desktop->desktop_layer_surface.surface.swr_buf.w;
+        int swr_buf_h = desktop->desktop_layer_surface.surface.swr_buf.h;
 
-        SWRenderBoundI region_to_redraw = {
+        SWRenderBoundI redraw_region_bounds = {
             swr_buf_w,
             swr_buf_h,
             -1,
             -1,
         };
-        SWRenderBoundI *damage_bound = NULL;
 
         // calculate region to redraw
-        while ((damage_bound = Vector_IterNext(&iter_damage_bounds)))
-        {
-            if (damage_bound->x1 < region_to_redraw.x1)
-                region_to_redraw.x1 = damage_bound->x1;
-            if (damage_bound->y1 < region_to_redraw.y1)
-                region_to_redraw.y1 = damage_bound->y1;
-            if (damage_bound->x2 > region_to_redraw.x2)
-                region_to_redraw.x2 = damage_bound->x2;
-            if (damage_bound->y2 > region_to_redraw.y2)
-                region_to_redraw.y2 = damage_bound->y2;
-        }
-        Vector_Clear(&desktop->damage_bounds);
+        SWRenderBoundI *damage_bound = NULL;
 
-        if (region_to_redraw.x1 < 0)
-            region_to_redraw.x1 = 0;
-        if (region_to_redraw.y1 < 0)
-            region_to_redraw.y1 = 0;
-        if (region_to_redraw.x2 >= swr_buf_w)
-            region_to_redraw.x2 = swr_buf_w - 1;
-        if (region_to_redraw.y2 >= swr_buf_h)
-            region_to_redraw.y2 = swr_buf_h - 1;
+        while ((damage_bound = Vector_IterNext(&iter_damage_bounds)))
+            SWRender_IncludeBoundToBoundInt(&redraw_region_bounds, damage_bound);
+        Vector_Clear(&desktop->damage_bounds);
 
         // TODO: do more valid check here?
 
         // ----------------------- do redraw stuff here -----------------------
-        int redraw_region_x = region_to_redraw.x1;
-        int redraw_region_y = region_to_redraw.y1;
-        int redraw_region_w = region_to_redraw.x2 - region_to_redraw.x1 + 1;
-        int redraw_region_h = region_to_redraw.y2 - region_to_redraw.y1 + 1;
 
-        SWRenderBuffer buf_redraw =
-        {
-            redraw_region_w,
-            redraw_region_h,
-            (uint32_t *)SWRender_GetPointerByPosition(
-                &desktop->surface.surface.swr_buf,
-                region_to_redraw.x1,
-                region_to_redraw.y1
-            ),
-            desktop->surface.surface.swr_buf.linesize
-        };
-        SWRenderBoundI redraw_local_bound = SWRender_RectToBoundI((SWRenderRectI)
-        {
-            0,
-            0,
-            redraw_region_w - 1,
-            redraw_region_h - 1,
-        });
+        SWRenderRectI redraw_region_rect;
+        SWRender_BoundToRectInt(&redraw_region_rect, &redraw_region_bounds);
 
-        struct HashSet_Iter iter_toplevel_handles;
+        SWRenderBuffer buf_redraw;
 
-        // background
-        SWRender_FillRect(&buf_redraw, redraw_local_bound, (SWRenderColor){ 0, 0, 0, 0 }, true);
-        
-        // icons
-        if (HashSet_IterInit(&iter_toplevel_handles, &desktop->toplevel_handles))
+        if (SWRender_BufferCrop(&buf_redraw, &desktop->desktop_layer_surface.surface.swr_buf, &redraw_region_bounds))
         {
-            struct ToplevelHandle *toplevel_handle = NULL;
+            SWRenderBoundI redraw_local_bound;
+            SWRender_BufferGetBounds(&redraw_local_bound, &buf_redraw);
+
+            // background
+            SWRender_FillRect(&buf_redraw, &redraw_local_bound, (SWRenderColor){ 0, 0, 0, 0 }, true);
             
-            while ((toplevel_handle = HashSet_IterNext(&iter_toplevel_handles)))
+            // icons
+            struct HashSet_Iter iter_toplevel_handles = { };
+            
+            if (HashSet_IterInit(&iter_toplevel_handles, &desktop->toplevel_handles))
             {
-                if (!(toplevel_handle->arrangement.visible && toplevel_handle->arrangement.has_position))
-                    continue;
+                struct ToplevelHandle *toplevel_handle = NULL;
                 
-                SWRenderBoundI icon_bounds = SWRender_RectToBoundI((SWRenderRectI)
+                while ((toplevel_handle = HashSet_IterNext(&iter_toplevel_handles)))
                 {
-                    toplevel_handle->arrangement.x - redraw_region_x + 1,
-                    toplevel_handle->arrangement.y - redraw_region_y + 1,
-                    DESKTOP_DEFAULT_ICON_SIZE_X - 2,
-                    DESKTOP_DEFAULT_ICON_SIZE_Y - 2,
-                    //redraw_region_x + toplevel_handle->arrangement.w - 1,
-                    //redraw_region_y + toplevel_handle->arrangement.h - 1,
-                });
+                    if (!(toplevel_handle->arrangement.visible && toplevel_handle->arrangement.has_position))
+                        continue;
 
-                if (!SWRender_GetIntersectionBetweenBoundI(&redraw_local_bound, &icon_bounds, NULL))
-                    continue;
+                    printf("redrawing '%s' at (%d, %d)\n", toplevel_handle->title, toplevel_handle->arrangement.x, toplevel_handle->arrangement.y);
+                    
+                    SWRenderRectI icon_rect =
+                    {
+                        toplevel_handle->arrangement.x - redraw_region_rect.x + 1,
+                        toplevel_handle->arrangement.y - redraw_region_rect.y + 1,
+                        DESKTOP_DEFAULT_ICON_SIZE_X - 2,
+                        DESKTOP_DEFAULT_ICON_SIZE_Y - 2,
+                    };
+                    SWRenderBoundI icon_bounds;
+                    SWRender_RectToBoundInt(&icon_bounds, &icon_rect);
 
-                SWRender_FillRect(&buf_redraw, icon_bounds, (SWRenderColor){ 255, 255, 255, 255 }, true);
+                    // not inside region, skip
+                    if (!SWRender_GetIntersectionBetweenBoundInt(&redraw_local_bound, &icon_bounds, NULL))
+                        continue;
+
+                    // draw
+                    SWRender_FillRect(&buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 255 }, true);
+
+                    SWRenderBuffer buf_text_draw;
+                    if (SWRender_BufferCrop(&buf_text_draw, &buf_redraw, &icon_bounds))
+                    {
+                        FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(9.5F));
+                        FTRender_RenderStrWithAlign(
+                            &global_ft_state,
+                            &buf_text_draw,
+                            // TODO: use relative coord. instad of (0, 0)
+                            // this (0, 0) coordinate introduces bug but i want to keep it a for while until finished
+                            // because it somehow funny looks like some unresponsive windows in Windows GDI era
+                            INT_TO_F26DOT6(0),
+                            INT_TO_F26DOT6(0),
+                            toplevel_handle->title,
+                            -1, -1,
+                            (SWRenderColor){ 0, 0, 0, 255 }
+                        );
+                    }
+                }
             }
+
+            //// debug for showing redrawn regions
+            //SWRender_FillRect(&desktop->desktop_layer_surface.surface.swr_buf, &redraw_region_bounds, (SWRenderColor){ 0, 0, 255, 64 }, false);
+
+            // add damage
+            DoubleBufferedSurface_AddDamage(&desktop->desktop_layer_surface.surface, (struct Buffer_Rect *)&redraw_region_rect);
         }
-
-        // debug
-        SWRender_FillRect(&desktop->surface.surface.swr_buf, region_to_redraw, (SWRenderColor){ 0, 0, 255, 64 }, false);
-
-        // add damage
-        DoubleBufferedSurface_AddDamage(&desktop->surface.surface, &(struct Buffer_Rect){
-            redraw_region_x, redraw_region_y, redraw_region_w, redraw_region_h
-        });
     }
 
     if (desktop->damaged)
     {
-        if (DoubleBufferedSurface_TryCommit(&desktop->surface.surface))
+        if (DoubleBufferedSurface_TryCommit(&desktop->desktop_layer_surface.surface))
             desktop->damaged = false;
     }
 }

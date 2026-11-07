@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+#include "Globals.h"
+
 static void Buffer_Release(
     void *data,
     struct wl_buffer *wl_buffer
@@ -19,17 +21,17 @@ static void Buffer_Release(
     buffer->available = true;
 }
 
-static const struct wl_buffer_listener Buffer_wl_listener = 
+static const struct wl_buffer_listener Buffer_listener = 
 {
     .release = Buffer_Release,
 };
 
-bool Buffer_Init(struct Buffer *buffer, struct AppState *app_state, int32_t w, int32_t h)
+bool Buffer_Init(struct Buffer *buffer, int32_t w, int32_t h)
 {
-    if (!buffer || !app_state)
+    if (!buffer)
         return false;
 
-    if (!app_state->shm)
+    if (!wl_shm)
         return false;
 
     buffer->buffer = NULL;
@@ -61,7 +63,7 @@ bool Buffer_Init(struct Buffer *buffer, struct AppState *app_state, int32_t w, i
     }
 
     // wl shm pool
-    if (!(wl_shm_pool = wl_shm_create_pool(app_state->shm, fd_shm, size)))
+    if (!(wl_shm_pool = wl_shm_create_pool(wl_shm, fd_shm, size)))
     {
         fprintf(stderr, "failed to create shm pool\n");
         goto End;
@@ -77,7 +79,7 @@ bool Buffer_Init(struct Buffer *buffer, struct AppState *app_state, int32_t w, i
     buffer->h = h;
     buffer->available = true;
 
-    wl_buffer_add_listener(buffer->buffer, &Buffer_wl_listener, buffer);
+    wl_buffer_add_listener(buffer->buffer, &Buffer_listener, buffer);
 
     success = true;
 

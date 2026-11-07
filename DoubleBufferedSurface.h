@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Buffer.h"
-#include "AppState.h"
 
 #include "Vector.h"
 #include "SWRender/SWRender.h"
@@ -33,8 +32,8 @@ struct DoubleBufferedSurface
     struct PointerState pointer_state;
 };
 
-extern bool DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface, struct AppState *app_state);
-extern bool DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, struct AppState *app_state, int32_t w, int32_t h);
+extern bool DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface);
+extern bool DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, int32_t w, int32_t h);
 extern void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface);
 
 extern bool DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, const struct Buffer_Rect *rect);

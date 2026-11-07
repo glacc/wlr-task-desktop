@@ -7,40 +7,66 @@
 #define POINTER_DRAG_START_THRESHOLD_1X 5
 #define POINTER_DRAG_START_THRESHOLD_SQ_WL_FIXED ((POINTER_DRAG_START_THRESHOLD_1X * POINTER_DRAG_START_THRESHOLD_1X) << 8)
 
+// TODO: make this configurable?
+#define POINTER_DOUBLE_CLICK_TIME_MS 400
+
 struct PointerBtnState
 {
     uint32_t button;
     
+    // state change
     bool is_down;
 
     bool pressed;
     wl_fixed_t pressed_x;
     wl_fixed_t pressed_y;
+    int pressed_x_int;
+    int pressed_y_int;
+    uint32_t pressed_time;
 
     bool release;
     wl_fixed_t release_x;
     wl_fixed_t release_y;
+    int release_x_int;
+    int release_y_int;
+    uint32_t release_time;
+
+    // double click
+    bool double_click;
+    wl_fixed_t double_click_x;
+    wl_fixed_t double_click_y;
+    int double_click_x_int;
+    int double_click_y_int;
+    uint32_t double_click_time;
+
+    // drag
+    bool dragging;
 
     bool drag_start;
-    bool dragging;
-    bool drag_stop;
     wl_fixed_t drag_start_x;
     wl_fixed_t drag_start_y;
-
-    uint32_t pressed_time;
-    uint32_t release_time;
+    int drag_start_x_int;
+    int drag_start_y_int;
     uint32_t drag_start_time;
+
+    bool drag_stop;
     uint32_t drag_stop_time;
 };
 
 struct PointerState
 {
+    // surface position
     wl_fixed_t x;
     wl_fixed_t y;
+    int x_int;
+    int y_int;
     uint32_t motion_time;
+
     wl_fixed_t x_old;
     wl_fixed_t y_old;
-    uint32_t motion_time_old;
+    int x_old_int;
+    int y_old_int;
+    uint32_t motion_old_time;
 
     bool pointer_inside;
 
@@ -77,4 +103,4 @@ extern void Pointer_DestroyWlObj(struct Pointer *pointer);
 
 extern struct PointerBtnState *Pointer_GetBtnState(struct PointerState *pointer_state, uint32_t button);
 
-extern const struct wl_pointer_listener Pointer_wl_listener;
+extern const struct wl_pointer_listener Pointer_listener;

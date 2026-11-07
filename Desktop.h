@@ -15,6 +15,7 @@
 
 struct Desktop
 {
+    // output
     struct wl_output *wl_output;
 
     uint32_t wl_name;
@@ -29,12 +30,18 @@ struct Desktop
 
     int32_t scale;
 
-    struct HashSet toplevel_handles;
-
-    struct DesktopLayerSurface surface;
-
+    // surface
+    struct DesktopLayerSurface desktop_layer_surface;
     struct Vector damage_bounds; // typeof(SWRenderBoundI)
     bool damaged;
+
+    // toplevel handle
+    struct HashSet toplevel_handles;
+
+    // selected handle and state
+    struct ToplevelHandle *selected_handle;
+    int icon_drag_start_x;
+    int icon_drag_start_y;
 };
 
 extern const struct wl_output_listener Desktop_output_wl_listener;

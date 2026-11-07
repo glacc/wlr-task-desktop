@@ -5,7 +5,7 @@
 #include <malloc.h>
 #include <string.h>
 
-#include "AppState.h"
+#include "Globals.h"
 #include "ToplevelHandle.h"
 
 static void ToplevelManagerListener_Toplevel(
@@ -26,7 +26,7 @@ static void ToplevelManagerListener_Toplevel(
     }
 
     // put into toplevel_handles
-    if (!HashSet_Add(&app_state->toplevel_handles, toplevel_handle, NULL))
+    if (!HashSet_Add(&global_toplevel_handles, toplevel_handle, NULL))
     {
         fprintf(stderr, "failed to add struct ToplevelHandle into ToplevelManager handle HashSet: %s\n", strerror(errno));
         ToplevelHandle_Destroy(toplevel_handle);
@@ -36,7 +36,7 @@ static void ToplevelManagerListener_Toplevel(
     toplevel_handle->toplevel_handle = zwlr_toplevel_handle;
     toplevel_handle->app_state = app_state;
 
-    zwlr_foreign_toplevel_handle_v1_add_listener(toplevel_handle->toplevel_handle, &ToplevelHandle_wl_listener, toplevel_handle);
+    zwlr_foreign_toplevel_handle_v1_add_listener(toplevel_handle->toplevel_handle, &ToplevelHandle_listener, toplevel_handle);
 }
 
 static void ToplevelManagerListener_Finished(
@@ -46,10 +46,10 @@ static void ToplevelManagerListener_Finished(
 {
     struct AppState *app_state = data;
 
-    zwlr_foreign_toplevel_manager_v1_destroy(app_state->toplevel_manager);
+    zwlr_foreign_toplevel_manager_v1_destroy(zwlr_toplevel_manager);
 }
 
-const struct zwlr_foreign_toplevel_manager_v1_listener ToplevelManager_wl_listener =
+const struct zwlr_foreign_toplevel_manager_v1_listener ToplevelManager_listener =
 {
     .toplevel = ToplevelManagerListener_Toplevel,
     .finished = ToplevelManagerListener_Finished,

@@ -7,6 +7,8 @@
 
 #include "Utility.h"
 
+int Pointer_debug_verbosity = 1;
+
 static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint32_t button, bool down, uint32_t time)
 {
     struct PointerBtnState *btn_state = NULL;
@@ -20,14 +22,30 @@ static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint
 
     if (down)
     {
+        uint32_t time_between_last_click = time - btn_state->pressed_time;
+        if (time_between_last_click < POINTER_DOUBLE_CLICK_TIME_MS)
+        {
+            btn_state->double_click = true;
+            
+            btn_state->double_click_x = pointer_state->x;
+            btn_state->double_click_x = pointer_state->y;
+            btn_state->double_click_x_int = pointer_state->x_int;
+            btn_state->double_click_x_int = pointer_state->y_int;
+            btn_state->double_click_time = time;
+        }
+
         btn_state->pressed_x = pointer_state->x;
         btn_state->pressed_y = pointer_state->y;
+        btn_state->pressed_x_int = pointer_state->x_int;
+        btn_state->pressed_y_int = pointer_state->y_int;
         btn_state->pressed_time = time;
     }
     else
     {
         btn_state->release_x = pointer_state->x;
         btn_state->release_y = pointer_state->y;
+        btn_state->release_x_int = pointer_state->x_int;
+        btn_state->release_y_int = pointer_state->y_int;
         btn_state->release_time = time;
 
         btn_state->dragging = false;
@@ -58,7 +76,8 @@ static void Pointer_Enter(
         surface->pointer = pointer;
         surface->pointer_state.pointer_inside = true;
 
-        printf("pointer entered surface %s\n", surface->name);
+        if (Pointer_debug_verbosity >= 2)
+            printf("pointer entered surface %s\n", surface->name);
     }
 }
 
@@ -83,7 +102,8 @@ static void Pointer_Leave(
     {
         surface->pointer_state.pointer_inside = false;
 
-        printf("pointer left surface %s\n", surface->name);
+        if (Pointer_debug_verbosity >= 2)
+            printf("pointer left surface %s\n", surface->name);
     }
 }
 
@@ -102,11 +122,16 @@ static void Pointer_Motion(
     if (!surface)
         return;
 
+    int surface_x_int = Utility_WlFixedToInt(surface_x);
+    int surface_y_int = Utility_WlFixedToInt(surface_y);
+
     struct PointerState *pointer_state = &surface->pointer_state;
 
     pointer_state->motion_time = time;
     pointer_state->x = surface_x;
     pointer_state->y = surface_y;
+    pointer_state->x_int = surface_x_int;
+    pointer_state->y_int = surface_y_int;
 
     struct HashSet_Iter iter = { };
     if (HashSet_IterInit(&iter, &pointer_state->button_states))
@@ -135,13 +160,18 @@ static void Pointer_Motion(
 
                 btn_state->drag_start_x = surface_x;
                 btn_state->drag_start_y = surface_y;
+                btn_state->drag_start_x_int = surface_x_int;
+                btn_state->drag_start_y_int = surface_y_int;
 
                 btn_state->drag_start_time = time;
 
-                printf(
-                    "pointer button %u starts dragging from (%d, %d) in %s\n",
-                    btn_state->button, surface_x, surface_y, surface->name
-                );
+                if (Pointer_debug_verbosity >= 1)
+                {
+                    printf(
+                        "pointer button %u starts dragging from (%d, %d) in %s\n",
+                        btn_state->button, surface_x, surface_y, surface->name
+                    );
+                }
             }
         }
     }
@@ -172,6 +202,9 @@ static void Pointer_Button(
 
     Pointer_SetBtnStateInternal(pointer_state, button, (state == WL_POINTER_BUTTON_STATE_PRESSED), time);
 
+    if (Pointer_debug_verbosity < 1)
+        return;
+    
     printf(
         "button %u %s in %s (%d, %d)\n",
         button,
@@ -277,7 +310,7 @@ static void Pointer_Frame(
     // pointer event frame ends
 }
 
-const struct wl_pointer_listener Pointer_wl_listener =
+const struct wl_pointer_listener Pointer_listener =
 {
     .enter = Pointer_Enter,
     .leave = Pointer_Leave,
@@ -371,7 +404,9 @@ void PointerState_PostDispatch(struct PointerState *pointer_state)
 
     pointer_state->x_old = pointer_state->x;
     pointer_state->y_old = pointer_state->y;
-    pointer_state->motion_time_old = pointer_state->motion_time;
+    pointer_state->x_old_int = pointer_state->x_int;
+    pointer_state->y_old_int = pointer_state->y_int;
+    pointer_state->motion_old_time = pointer_state->motion_time;
 
     struct HashSet_Iter iter = { };
     if (HashSet_IterInit(&iter, &pointer_state->button_states))
@@ -382,6 +417,7 @@ void PointerState_PostDispatch(struct PointerState *pointer_state)
         {
             btn_state->pressed = false;
             btn_state->release = false;
+            btn_state->double_click = false;
 
             btn_state->drag_start = false;
             btn_state->drag_stop = false;
@@ -435,7 +471,7 @@ void Pointer_GetWlObj(struct Pointer *pointer, struct wl_seat *seat)
         return;
 
     pointer->wl_pointer = wl_seat_get_pointer(seat);
-    wl_pointer_add_listener(pointer->wl_pointer, &Pointer_wl_listener, pointer);
+    wl_pointer_add_listener(pointer->wl_pointer, &Pointer_listener, pointer);
 }
 
 void Pointer_DestroyWlObj(struct Pointer *pointer)

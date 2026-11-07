@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <memory.h>
 
+#include "Globals.h"
+
 static void DesktopLayerSurface_Surface_Enter(
     void *data,
     struct wl_surface *wl_surface,
@@ -61,7 +63,7 @@ static void DesktopLayerSurface_Configure(
     zwlr_layer_surface_v1_ack_configure(zwlr_layer_surface_v1, serial);
 
     // update surface size and viewport dst
-    DoubleBufferedSurface_SetSize(&layer_surface->surface, layer_surface->app_state, width, height);
+    DoubleBufferedSurface_SetSize(&layer_surface->surface, width, height);
     wp_viewport_set_destination(layer_surface->viewport, layer_surface->w, layer_surface->h);
 
     printf(
@@ -98,19 +100,17 @@ const struct zwlr_layer_surface_v1_listener DesktopLayerSurface_zwlr_layer_surfa
     .closed = DesktopLayerSurface_Closed,
 };
 
-bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct AppState *app_state, struct wl_output *output)
+bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct wl_output *output)
 {
-    if (!layer_surface || !app_state)
+    if (!layer_surface)
         return false;
 
-    layer_surface->app_state = app_state;
-
     // create double buffered surface
-    if (!DoubleBufferedSurface_Init(&layer_surface->surface, app_state))
+    if (!DoubleBufferedSurface_Init(&layer_surface->surface))
         return false;
 
     // viewport
-    if (!(layer_surface->viewport = wp_viewporter_get_viewport(app_state->viewporter, DesktopLayerSurface_GetWlSurface(layer_surface))))
+    if (!(layer_surface->viewport = wp_viewporter_get_viewport(wp_viewporter, DesktopLayerSurface_GetWlSurface(layer_surface))))
     {
         DoubleBufferedSurface_Cleanup(&layer_surface->surface);
         return false;
@@ -118,7 +118,7 @@ bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct 
 
     // create layer surface
     layer_surface->zwlr_layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        app_state->layer_shell,
+        zwlr_layer_shell,
         DesktopLayerSurface_GetWlSurface(layer_surface),
         output,
         ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
@@ -148,7 +148,7 @@ bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct 
         layer_surface->zwlr_layer_surface, &DesktopLayerSurface_zwlr_layer_surface_listener, layer_surface);
 
     wl_surface_commit(layer_surface->surface.surface);
-    wl_display_roundtrip(app_state->display);
+    wl_display_roundtrip(wl_display);
 
     return true;
 }

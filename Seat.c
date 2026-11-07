@@ -2,7 +2,10 @@
 
 #include <stdio.h>
 
-#include "AppState.h"
+#include "Keyboard.h"
+#include "Pointer.h"
+
+#include "Globals.h"
 
 static void Seat_Capabilities(
     void *data,
@@ -13,14 +16,14 @@ static void Seat_Capabilities(
     struct AppState *app_state = data;
 
     if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD)
-        Keyboard_GetWlObj(&app_state->keyboard, wl_seat);
+        Keyboard_GetWlObj(&global_keyboard, wl_seat);
     else
-        Keyboard_DestroyWlObj(&app_state->keyboard);
+        Keyboard_DestroyWlObj(&global_keyboard);
     
     if (capabilities & WL_SEAT_CAPABILITY_POINTER)
-        Pointer_GetWlObj(&app_state->pointer, wl_seat);
+        Pointer_GetWlObj(&global_pointer, wl_seat);
     else
-        Pointer_DestroyWlObj(&app_state->pointer);
+        Pointer_DestroyWlObj(&global_pointer);
 }
 
 static void Seat_Name(
@@ -32,7 +35,7 @@ static void Seat_Name(
     printf("seat name: %s\n", name);
 }
 
-const struct wl_seat_listener Seat_wl_listener =
+const struct wl_seat_listener Seat_listener =
 {
     .capabilities = Seat_Capabilities,
     .name = Seat_Name,

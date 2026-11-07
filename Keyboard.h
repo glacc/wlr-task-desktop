@@ -2,6 +2,11 @@
 
 #include <wayland-client.h>
 
+struct KeyboardState
+{
+
+};
+
 struct Keyboard
 {
     struct wl_keyboard *wl_keyboard;
@@ -14,4 +19,4 @@ struct Keyboard
 extern void Keyboard_GetWlObj(struct Keyboard *keyboard, struct wl_seat *seat);
 extern void Keyboard_DestroyWlObj(struct Keyboard *keyboard);
 
-extern const struct wl_keyboard_listener Keyboard_wayland_listener;
+extern const struct wl_keyboard_listener Keyboard_listener;

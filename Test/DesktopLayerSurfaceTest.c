@@ -2,11 +2,12 @@
 
 #include <math.h>
 
+#include "Globals.h"
+
 #include "SWRender/SWRender.h"
 
 #define M_PI_2f 1.57079632679489661923f /* pi/2 */
 #define M_PI    3.14159265358979323846  /* pi */
-
 
 static const SWRenderColor color_transition_table[] =
 {
@@ -125,7 +126,7 @@ void TestSWRenderOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface
 
     const float angle_offset = -M_PI_2f;
 
-    SWRender_FillRectRounded(swr_buf, (SWRenderBoundF){ bg_rect_pos_ul, bg_rect_pos_ul, bg_rect_pos_dr, bg_rect_pos_dr }, bg_rect_corner_radius, (SWRenderColor){ 0x00, 0x00, 0x00, 0x40 });
+    SWRender_FillRectRounded(swr_buf, &(SWRenderBoundF){ bg_rect_pos_ul, bg_rect_pos_ul, bg_rect_pos_dr, bg_rect_pos_dr }, bg_rect_corner_radius, (SWRenderColor){ 0x00, 0x00, 0x00, 0x40 });
     SWRender_FillCircle(swr_buf, (SWRenderVec2F){ half_w , half_h }, bg_radius, NULL, (SWRenderColor){ 0x00, 0x00, 0x00, 0x40 });
     SWRender_FillRing(swr_buf, (SWRenderVec2F){ half_w, half_h }, bg_radius, bg_ring_thickness, NULL, (SWRenderColor){ 0x00, 0x00, 0x00, 0x40 });
 
@@ -143,9 +144,9 @@ void TestSWRenderOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface
     }
 }
 
-void TestDesktopLayerSurface(struct DesktopLayerSurface *layer_surface, struct AppState *app_state)
+void TestDesktopLayerSurface(struct DesktopLayerSurface *layer_surface)
 {
-    if (!DesktopLayerSurface_Init(layer_surface, app_state, NULL))
+    if (!DesktopLayerSurface_Init(layer_surface, NULL))
         return;
     
     TestPatternDrawOnDesktopLayerSurface(layer_surface);
@@ -153,5 +154,5 @@ void TestDesktopLayerSurface(struct DesktopLayerSurface *layer_surface, struct A
     DoubleBufferedSurface_AddDamage(&layer_surface->surface, NULL);
     DoubleBufferedSurface_TryCommit(&layer_surface->surface);
 
-    wl_display_roundtrip(layer_surface->app_state->display);
+    wl_display_roundtrip(wl_display);
 }

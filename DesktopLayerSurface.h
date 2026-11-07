@@ -9,13 +9,13 @@
 
 struct DesktopLayerSurface
 {
-    struct DoubleBufferedSurface surface;
+    struct DoubleBufferedSurface double_buffered_surface;
 
     struct wp_viewport *viewport;
     struct zwlr_layer_surface_v1 *zwlr_layer_surface;
 
-    uint32_t w;
-    uint32_t h;
+    int w;
+    int h;
 
     bool closed;
 };

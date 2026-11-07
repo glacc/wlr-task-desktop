@@ -42,6 +42,8 @@ struct Desktop
     struct ToplevelHandle *selected_handle;
     int icon_drag_start_x;
     int icon_drag_start_y;
+
+    bool debug_key_pressed;
 };
 
 extern const struct wl_output_listener Desktop_output_wl_listener;

@@ -25,6 +25,7 @@ static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint
         uint32_t time_between_last_click = time - btn_state->pressed_time;
         if (time_between_last_click < POINTER_DOUBLE_CLICK_TIME_MS)
         {
+            // TODO: check distance between clicks...
             btn_state->double_click = true;
             
             btn_state->double_click_x = pointer_state->x;

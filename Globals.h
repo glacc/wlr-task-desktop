@@ -1,5 +1,7 @@
 #pragma once
 
+#include <signal.h>
+
 #include <wayland-client.h>
 #include "viewporter-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
@@ -12,6 +14,10 @@
 #include "Vector.h"
 
 #include "SWRender/FTEssentials.h"
+
+#ifndef DEBUG_DAMAGE
+#define DEBUG_DAMAGE 0
+#endif
 
 extern struct wl_display    *wl_display;
 extern struct wl_registry   *wl_registry;
@@ -35,3 +41,5 @@ extern struct Vector global_toplevel_handle_to_destroy;             // typeof(st
 extern struct Vector global_desktop_with_surface_creation_pending;  // typeof(struct Desktop *)
 
 extern FTEssentials_State global_ft_state;
+
+extern volatile sig_atomic_t global_exit;

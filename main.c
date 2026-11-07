@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <signal.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/mman.h>
@@ -30,7 +31,15 @@
 
 #include "SWRender/FTEssentials.h"
 
+#include "Icon.h"
+
+#ifndef DEBUG_TEST
+#define DEBUG_TEST 0
+#endif
+
+#if DEBUG_TEST == 1
 #include "Test/DesktopLayerSurfaceTest.h"
+#endif
 
 #define ENV_HOME            "HOME"
 #define ENV_XDG_DATA_HOME   "XDG_DATA_HOME"
@@ -62,6 +71,7 @@ static int local_event_pipefds[2] = { -1, -1 };
 
 FTEssentials_State global_ft_state = { };
 static const char *fontpath = "sw-render/MiSans_Regular.ttf";
+volatile sig_atomic_t global_exit = false;
 
 void PrintEnv(const char *env_name)
 {
@@ -308,12 +318,7 @@ static void Cleanup(void)
     {
         struct Desktop *desktop = NULL;
         while ((desktop = HashSet_IterDel(&iter_hashset)))
-        {
-            if (desktop->wl_output)
-                wl_output_destroy(desktop->wl_output);
-
-            free(desktop);
-        }
+            Desktop_Destroy(desktop);
     }
     HashSet_Cleanup(&global_desktops);
 
@@ -367,14 +372,15 @@ void ProcessDesktopCreation(void)
             struct Desktop *desktop = *ptr_desktop_ptr;
 
             DesktopLayerSurface_Init(&desktop->desktop_layer_surface, desktop->wl_output);
-            DoubleBufferedSurface_SetName(&desktop->desktop_layer_surface.surface, desktop->name);
+            DoubleBufferedSurface_SetName(&desktop->desktop_layer_surface.double_buffered_surface, desktop->name);
 
-            // test
+        #if DEBUG_TEST == 1
             TestPatternDrawOnDesktopLayerSurface(&desktop->desktop_layer_surface);
             TestSWRenderOnDesktopLayerSurface(&desktop->desktop_layer_surface);
+        #endif
 
-            DoubleBufferedSurface_AddDamage(&desktop->desktop_layer_surface.surface, NULL);
-            DoubleBufferedSurface_TryCommit(&desktop->desktop_layer_surface.surface);
+            DoubleBufferedSurface_AddDamage(&desktop->desktop_layer_surface.double_buffered_surface, NULL);
+            DoubleBufferedSurface_TryCommit(&desktop->desktop_layer_surface.double_buffered_surface);
 
             Desktop_AddDamage(desktop, 0, 0, desktop->w, desktop->h);
 
@@ -434,7 +440,7 @@ bool DispatchAllEvents(void)
     // poll exception?
     if (poll_result < 0)
     {
-        if (poll_result == EINTR)
+        if (errno == EINTR)
             return true;
         else
         {
@@ -487,9 +493,22 @@ bool DispatchAllEvents(void)
     return true;
 }
 
+static const char sigint_str[] = "SIGINT caught\n";
+
+static void SIGINTHandler(int signal)
+{
+    write(STDERR_FILENO, sigint_str, sizeof(sigint_str));
+    global_exit = 1;
+}
+
 int main(int argc, char *argv[])
 {
     int ret = 0;
+
+    Icon_TestFunctions();
+
+    if (signal(SIGINT, SIGINTHandler) == SIG_ERR)
+        fprintf(stderr, "failed to set signal handler: %s\n", strerror(errno));
 
     PrintEnv(ENV_HOME);
     PrintEnv(ENV_XDG_DATA_HOME);
@@ -501,7 +520,9 @@ int main(int argc, char *argv[])
         goto End;
     }
 
-    while (DispatchAllEvents());
+    while (DispatchAllEvents() && !global_exit);
+
+    puts("stopping...");
 
 End:
     Cleanup();

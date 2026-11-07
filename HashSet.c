@@ -272,8 +272,13 @@ void *HashSet_IterDel(struct HashSet_Iter *iter)
             if (iter->node)
             {
                 void *ret = iter->node->elem;
+                struct LinkedList_Node *node_to_del = iter->node;
 
                 iter->node = iter->node->next;
+
+                LinkedList_DelNode(node_to_del);
+
+                iter->hashset->count--;
 
                 return ret;
             }

@@ -70,16 +70,16 @@ void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surf
     color_bottom.g *= alpha_norm;
     color_bottom.b *= alpha_norm;
 
-    SWRenderColor *ptr_row_start = SWRender_GetPointerByPosition(&layer_surface->surface.swr_buf, 0, 0);
-    float progress_horz_inv = 1.0F / (float)layer_surface->surface.swr_buf.w;
-    float progress_vert_inv = 1.0F / (float)(layer_surface->surface.swr_buf.h - 1);
+    SWRenderColor *ptr_row_start = SWRender_GetPointerByPosition(&layer_surface->double_buffered_surface.render_buffer, 0, 0);
+    float progress_horz_inv = 1.0F / (float)layer_surface->double_buffered_surface.render_buffer.w;
+    float progress_vert_inv = 1.0F / (float)(layer_surface->double_buffered_surface.render_buffer.h - 1);
 
-    for (int y = 0; y < layer_surface->surface.swr_buf.h; y++)
+    for (int y = 0; y < layer_surface->double_buffered_surface.render_buffer.h; y++)
     {
         SWRenderColor *ptr_pixel = ptr_row_start;
         float vert_progress = y * progress_vert_inv;
 
-        for (int x = 0; x < layer_surface->surface.swr_buf.w; x++)
+        for (int x = 0; x < layer_surface->double_buffered_surface.render_buffer.w; x++)
         {
             float horz_progress = x * progress_horz_inv;
             *ptr_pixel = GetTransitionColor(alpha_norm, horz_progress);
@@ -87,7 +87,7 @@ void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surf
             ptr_pixel++;
         }
 
-        ptr_row_start += layer_surface->surface.swr_buf.w;
+        ptr_row_start += layer_surface->double_buffered_surface.render_buffer.w;
     }
 
     /*
@@ -104,7 +104,7 @@ void TestSWRenderOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface
     if (!layer_surface)
         return;
 
-    SWRenderBuffer *swr_buf = &layer_surface->surface.swr_buf;
+    SWRenderBuffer *swr_buf = &layer_surface->double_buffered_surface.render_buffer;
 
     if (!swr_buf->data)
         return;
@@ -151,8 +151,8 @@ void TestDesktopLayerSurface(struct DesktopLayerSurface *layer_surface)
     
     TestPatternDrawOnDesktopLayerSurface(layer_surface);
 
-    DoubleBufferedSurface_AddDamage(&layer_surface->surface, NULL);
-    DoubleBufferedSurface_TryCommit(&layer_surface->surface);
+    DoubleBufferedSurface_AddDamage(&layer_surface->double_buffered_surface, NULL);
+    DoubleBufferedSurface_TryCommit(&layer_surface->double_buffered_surface);
 
     wl_display_roundtrip(wl_display);
 }

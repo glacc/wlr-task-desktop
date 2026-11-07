@@ -63,7 +63,7 @@ static void DesktopLayerSurface_Configure(
     zwlr_layer_surface_v1_ack_configure(zwlr_layer_surface_v1, serial);
 
     // update surface size and viewport dst
-    DoubleBufferedSurface_SetSize(&layer_surface->surface, width, height);
+    DoubleBufferedSurface_SetSize(&layer_surface->double_buffered_surface, width, height);
     wp_viewport_set_destination(layer_surface->viewport, layer_surface->w, layer_surface->h);
 
     printf(
@@ -106,13 +106,13 @@ bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct 
         return false;
 
     // create double buffered surface
-    if (!DoubleBufferedSurface_Init(&layer_surface->surface))
+    if (!DoubleBufferedSurface_Init(&layer_surface->double_buffered_surface))
         return false;
 
     // viewport
     if (!(layer_surface->viewport = wp_viewporter_get_viewport(wp_viewporter, DesktopLayerSurface_GetWlSurface(layer_surface))))
     {
-        DoubleBufferedSurface_Cleanup(&layer_surface->surface);
+        DoubleBufferedSurface_Cleanup(&layer_surface->double_buffered_surface);
         return false;
     }
 
@@ -127,7 +127,7 @@ bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct 
 
     if (!layer_surface->zwlr_layer_surface)
     {
-        DoubleBufferedSurface_Cleanup(&layer_surface->surface);
+        DoubleBufferedSurface_Cleanup(&layer_surface->double_buffered_surface);
         return false;
     }
 
@@ -147,7 +147,7 @@ bool DesktopLayerSurface_Init(struct DesktopLayerSurface *layer_surface, struct 
     zwlr_layer_surface_v1_add_listener(
         layer_surface->zwlr_layer_surface, &DesktopLayerSurface_zwlr_layer_surface_listener, layer_surface);
 
-    wl_surface_commit(layer_surface->surface.surface);
+    wl_surface_commit(layer_surface->double_buffered_surface.surface);
     wl_display_roundtrip(wl_display);
 
     return true;
@@ -170,15 +170,15 @@ void DesktopLayerSurface_Cleanup(struct DesktopLayerSurface *layer_surface)
         layer_surface->viewport = NULL;
     }
 
-    DoubleBufferedSurface_Cleanup(&layer_surface->surface);
+    DoubleBufferedSurface_Cleanup(&layer_surface->double_buffered_surface);
 
     layer_surface->closed = true;
 }
 
 struct wl_surface *DesktopLayerSurface_GetWlSurface(struct DesktopLayerSurface *layer_surface)
 {
-    if (!layer_surface || !layer_surface->surface.surface)
+    if (!layer_surface || !layer_surface->double_buffered_surface.surface)
         return NULL;
 
-    return layer_surface->surface.surface;
+    return layer_surface->double_buffered_surface.surface;
 }

@@ -2,9 +2,19 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "make",
+            "label": "make-debug",
             "type": "shell",
-            "command": "cd \"${workspaceFolder}\" && env CFLAGS=\"-O0 -g -march=x86-64-v3\" make -B -j$(nproc)",
+            "command": "cd \"${workspaceFolder}\" && env CFLAGS=\"-DDEBUG_DAMAGE=1 -fsanitize=address -O0 -g -march=x86-64-v3\" make -B -j$(nproc)",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "make-release",
+            "type": "shell",
+            "command": "cd \"${workspaceFolder}\" && make -B -j$(nproc)",
             "group": "build",
             "presentation": {
                 "reveal": "always",

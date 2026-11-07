@@ -20,7 +20,7 @@ struct DoubleBufferedSurface
     unsigned int commit_time[2];
     unsigned int callback_followed_commit_count;
 
-    SWRenderBuffer swr_buf;
+    SWRenderBuffer render_buffer;
 
     char *name;
     

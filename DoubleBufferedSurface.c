@@ -12,7 +12,13 @@
 
 #include "Globals.h"
 
+#include "SWRender/SWRender.h"
+
+#if DEBUG_DAMAGE == 1
+static void DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(struct Buffer *dst, struct DoubleBufferedSurface *src, struct Buffer_Rect *rect, bool red_debug)
+#else
 static void DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(struct Buffer *dst, struct DoubleBufferedSurface *src, struct Buffer_Rect *rect)
+#endif
 {
     int32_t x1 = rect->x;
     int32_t x2 = x1 + rect->w;
@@ -23,14 +29,14 @@ static void DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(struct Buffer *dst
     if (y1 < 0) y1 = 0;
     if (x2 <= 0) return;
     if (y2 <= 0) return;
-    if (x2 > src->swr_buf.w) x2 = src->swr_buf.w;
-    if (y2 > src->swr_buf.h) y2 = src->swr_buf.h;
+    if (x2 > src->render_buffer.w) x2 = src->render_buffer.w;
+    if (y2 > src->render_buffer.h) y2 = src->render_buffer.h;
     if (x2 > dst->w) x2 = dst->w;
     if (y2 > dst->h) y2 = dst->h;
     if (x1 >= x2) return;
     if (y1 >= y2) return;
 
-    SWRenderColor       *ptr_row_start_src = SWRender_GetPointerByPosition(&src->swr_buf, x1, y1);
+    SWRenderColor       *ptr_row_start_src = SWRender_GetPointerByPosition(&src->render_buffer, x1, y1);
     struct Buffer_Pixel *ptr_row_start_dst = dst->pixels + (y1 * dst->w) + x1;
 
     while (y1 < y2)
@@ -40,17 +46,29 @@ static void DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(struct Buffer *dst
 
         for (int x = x1; x < x2; x++)
         {
+        #if DEBUG_DAMAGE == 1
+            SWRenderColor color_debug = *ptr_src;
+            if (red_debug)
+                SWRender_AlphaBlendRGBA8888((SWRenderColor){ 0, 0, 255, 127}, &color_debug);
+
+            float a_norm = color_debug.a * (1.0F / 255.0F);
+            ptr_dst->r = (uint8_t)(((float)color_debug.r * a_norm) + 0.5F);
+            ptr_dst->g = (uint8_t)(((float)color_debug.g * a_norm) + 0.5F);
+            ptr_dst->b = (uint8_t)(((float)color_debug.b * a_norm) + 0.5F);
+        #else
             float a_norm = ptr_src->a * (1.0F / 255.0F);
             ptr_dst->r = (uint8_t)(((float)ptr_src->r * a_norm) + 0.5F);
             ptr_dst->g = (uint8_t)(((float)ptr_src->g * a_norm) + 0.5F);
             ptr_dst->b = (uint8_t)(((float)ptr_src->b * a_norm) + 0.5F);
+        #endif
+            
             ptr_dst->a = ptr_src->a;
 
             ptr_src++;
             ptr_dst++;
         }
 
-        ptr_row_start_src = SWRender_GetPointerNextLine(&src->swr_buf, ptr_row_start_src);
+        ptr_row_start_src = SWRender_GetPointerNextLine(&src->render_buffer, ptr_row_start_src);
         ptr_row_start_dst += dst->w;
         y1++;
     }
@@ -116,7 +134,7 @@ bool DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, int32_
     if (!surface->surface)
         return false;
 
-    SWRender_BufferFree(&surface->swr_buf);
+    SWRender_BufferFree(&surface->render_buffer);
 
     // buffer 0-1 reallocation
     for (int i = 0; i < 2; i++)
@@ -129,9 +147,9 @@ bool DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, int32_
         Vector_Clear(&surface->damage_rects[i]);
     }
 
-    surface->swr_buf.w = w;
-    surface->swr_buf.h = h;
-    if (!SWRender_BufferAlloc(&surface->swr_buf))
+    surface->render_buffer.w = w;
+    surface->render_buffer.h = h;
+    if (!SWRender_BufferAlloc(&surface->render_buffer))
         goto Error;
 
     surface->commit_count = 0;
@@ -180,7 +198,7 @@ void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface)
 
     PointerState_Cleanup(&surface->pointer_state);
 
-    SWRender_BufferFree(&surface->swr_buf);
+    SWRender_BufferFree(&surface->render_buffer);
 }
 
 bool DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, const struct Buffer_Rect *rect)
@@ -193,7 +211,7 @@ bool DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, cons
     if (rect)
         return Vector_Add(vec_damage_rects, (void *)rect);
     else
-        return Vector_Add(vec_damage_rects, &(struct Buffer_Rect){ 0, 0, surface->swr_buf.w, surface->swr_buf.h });
+        return Vector_Add(vec_damage_rects, &(struct Buffer_Rect){ 0, 0, surface->render_buffer.w, surface->render_buffer.h });
 }
 
 bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
@@ -204,8 +222,8 @@ bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
     if (!surface->surface)
         return false;
 
-    unsigned int current_buffer = surface->commit_count & 1;
-    struct Buffer *buffer_curr = &surface->buffer[current_buffer];
+    unsigned int curr_buffer = surface->commit_count & 1;
+    struct Buffer *buffer_curr = &surface->buffer[curr_buffer];
 
     if (!buffer_curr->available)
         return false;
@@ -213,33 +231,45 @@ bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
     // attach current buffer
     wl_surface_attach(surface->surface, buffer_curr->buffer, 0, 0);
 
-    unsigned int prev_or_flip_buffer = current_buffer ^ 1;
-    struct Buffer *buffer_prev = &surface->buffer[prev_or_flip_buffer];
+    unsigned int prev_buffer = curr_buffer ^ 1;
+    struct Buffer *buffer_prev = &surface->buffer[prev_buffer];
     
     struct Buffer_Rect *rect;
     struct Vector_Iter iter = { };
 
-    printf("use plane %d\n", current_buffer);
-
-    for (int i = 0; i < (sizeof(surface->damage_rects) / sizeof(surface->damage_rects[0])); i++)
+    // prev buffer
+    Vector_IterInit(&iter, &surface->damage_rects[prev_buffer]);
+    while ((rect = Vector_IterNext(&iter)))
     {
-        Vector_IterInit(&iter, &surface->damage_rects[i]);
-        while ((rect = Vector_IterNext(&iter)))
-        {
-            DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect);
-            wl_surface_damage_buffer(surface->surface, rect->x, rect->y, rect->w, rect->h);
-            
-            printf("damage at (%d, %d) in size (%d, %d)\n", rect->x, rect->y, rect->w, rect->h);
-        }
+    #if DEBUG_DAMAGE == 1
+        DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect, false);
+        printf("damage at (%d, %d) in size (%d, %d)\n", rect->x, rect->y, rect->w, rect->h);
+    #else
+        DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect);
+    #endif
+        wl_surface_damage_buffer(surface->surface, rect->x, rect->y, rect->w, rect->h);
     }
-    Vector_Clear(&surface->damage_rects[prev_or_flip_buffer]);
+    Vector_Clear(&surface->damage_rects[prev_buffer]);
+
+    // curr buffer
+    Vector_IterInit(&iter, &surface->damage_rects[curr_buffer]);
+    while ((rect = Vector_IterNext(&iter)))
+    {
+    #if DEBUG_DAMAGE == 1
+        DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect, true);
+        printf("damage at (%d, %d) in size (%d, %d)\n", rect->x, rect->y, rect->w, rect->h);
+    #else
+        DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect);
+    #endif
+        wl_surface_damage_buffer(surface->surface, rect->x, rect->y, rect->w, rect->h);
+    }
 
     // flip
     wl_surface_commit(surface->surface);
     buffer_curr->available = false;
 
     surface->commit_count++;
-    surface->commit_time[current_buffer] = surface->commit_count;
+    surface->commit_time[curr_buffer] = surface->commit_count;
 
     return true;
 }

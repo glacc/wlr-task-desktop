@@ -96,13 +96,11 @@ static void ToplevelHandle_AppID(
         {
             toplevel_handle->desktop_entry.icon_buf.w = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X;
             toplevel_handle->desktop_entry.icon_buf.h = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y;
-            
+
             if (SWRender_LoadImageFromFileToBuffer(path, &toplevel_handle->desktop_entry.icon_buf) < 0)
                 fprintf(stderr, "failed to load icon '%s' into buffer: %s\n", path, strerror(errno));
 
-            printf("icon found for '");
-            ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
-            printf("': %s\n", path);
+            printf("icon found: %s\n", path);
 
             free(path);
         }

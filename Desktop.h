@@ -9,10 +9,6 @@
 
 #include "Vector.h"
 
-// TODO: make icon size configurable?
-#define DESKTOP_DEFAULT_ICON_SIZE_X 80
-#define DESKTOP_DEFAULT_ICON_SIZE_Y 96
-
 struct Desktop
 {
     // output

@@ -10,7 +10,13 @@
 #include "Globals.h"
 #include "Desktop.h"
 
+#include "Icon.h"
+
+#include "SWRender/SWRenderExtImage.h"
+
 int ToplevelHandle_debug_verbosity = 1;
+
+#pragma region PrintHandleInfo
 
 static void ToplevelHandle_PrintTitleAndAppID(struct ToplevelHandle *toplevel_handle)
 {
@@ -47,6 +53,8 @@ void ToplevelHandle_PrintIconifyToDesktop(struct ToplevelHandle *toplevel_handle
     );
 }
 
+#pragma endregion
+
 #pragma region WaylandCallbacks
 
 static void ToplevelHandle_Title(
@@ -57,11 +65,9 @@ static void ToplevelHandle_Title(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    bool had_title = (toplevel_handle->title != NULL);
-
     Utility_TryReplaceWithAnotherString(&toplevel_handle->title, title);
     
-    toplevel_handle->arrangement.redraw = true;
+    toplevel_handle->desktop_entry.redraw = true;
 
     if (ToplevelHandle_debug_verbosity < 1)
         return;
@@ -77,9 +83,30 @@ static void ToplevelHandle_AppID(
 {
     struct ToplevelHandle *toplevel_handle = data;
 
-    bool had_app_id = (toplevel_handle->app_id == NULL);
-
     Utility_TryReplaceWithAnotherString(&toplevel_handle->app_id, app_id);
+
+    if (toplevel_handle->app_id)
+    {
+        // TODO: debugging....
+        char *path = NULL;
+
+        Icon_FindAppIconPath(toplevel_handle->app_id, 64, 1, &path);
+
+        if (path)
+        {
+            toplevel_handle->desktop_entry.icon_buf.w = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X;
+            toplevel_handle->desktop_entry.icon_buf.h = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y;
+            
+            if (SWRender_LoadImageFromFileToBuffer(path, &toplevel_handle->desktop_entry.icon_buf) < 0)
+                fprintf(stderr, "failed to load icon '%s' into buffer: %s\n", path, strerror(errno));
+
+            printf("icon found for '");
+            ToplevelHandle_PrintTitleAndAppID(toplevel_handle);
+            printf("': %s\n", path);
+
+            free(path);
+        }
+    }
 
     if (ToplevelHandle_debug_verbosity < 1)
         return;
@@ -108,7 +135,7 @@ static void ToplevelHandle_OutputEnter(
     if (toplevel_handle->is_inside_desktops.count == 1)
     {
         toplevel_handle->iconify_to_desktop = desktop;
-        toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+        toplevel_handle->desktop_entry.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
 
         if (ToplevelHandle_debug_verbosity >= 1)
             ToplevelHandle_PrintIconifyToDesktop(toplevel_handle);
@@ -148,7 +175,7 @@ static void ToplevelHandle_OutputLeave(
 
         toplevel_handle->iconify_to_desktop = new_iconify_to_desktop;
 
-        toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
+        toplevel_handle->desktop_entry.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
 
         if (ToplevelHandle_debug_verbosity >= 1)
             ToplevelHandle_PrintIconifyToDesktop(toplevel_handle);
@@ -215,17 +242,17 @@ static void ToplevelHandle_State(
     {
         printf("minimized(%d -> %d), ", minimized_old, toplevel_handle->minimized);
 
-        toplevel_handle->arrangement.visible = toplevel_handle->minimized;
+        toplevel_handle->desktop_entry.visible = toplevel_handle->minimized;
 
         if (toplevel_handle->minimized)
         {
-            toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = false;
+            toplevel_handle->desktop_entry.has_not_been_minimized_since_last_desktop_change = false;
             
-            if (toplevel_handle->arrangement.recalc_position_when_minimize)
-                toplevel_handle->arrangement.recalc_position = true;
+            if (toplevel_handle->desktop_entry.recalc_position_when_minimize)
+                toplevel_handle->desktop_entry.recalc_position = true;
         }
 
-        toplevel_handle->arrangement.redraw = true;
+        toplevel_handle->desktop_entry.redraw = true;
     }
     else
     {
@@ -276,8 +303,8 @@ static void ToplevelHandle_Closed(
         puts(" closed");
     }
 
-    toplevel_handle->arrangement.redraw  = true;
-    toplevel_handle->arrangement.visible = false;
+    toplevel_handle->desktop_entry.redraw  = true;
+    toplevel_handle->desktop_entry.visible = false;
 
     // unref this from toplevel manager
     HashSet_Del(&global_toplevel_handles, toplevel_handle);
@@ -359,16 +386,16 @@ struct ToplevelHandle *ToplevelHandle_Create(void)
         return NULL;
     }
 
-    toplevel_handle->arrangement.has_position = false;
+    toplevel_handle->desktop_entry.has_position = false;
 
-    toplevel_handle->arrangement.visible = false;
+    toplevel_handle->desktop_entry.visible = false;
 
-    toplevel_handle->arrangement.has_not_been_minimized_since_last_desktop_change = true;
+    toplevel_handle->desktop_entry.has_not_been_minimized_since_last_desktop_change = true;
 
-    toplevel_handle->arrangement.recalc_position_when_minimize = true;
-    toplevel_handle->arrangement.recalc_position = true;
+    toplevel_handle->desktop_entry.recalc_position_when_minimize = true;
+    toplevel_handle->desktop_entry.recalc_position = true;
 
-    toplevel_handle->arrangement.redraw = false;
+    toplevel_handle->desktop_entry.redraw = false;
 
     return toplevel_handle;
 }
@@ -425,6 +452,8 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
     // destroy zwlr handle
     if (toplevel_handle->toplevel_handle)
         zwlr_foreign_toplevel_handle_v1_destroy(toplevel_handle->toplevel_handle);
+
+    SWRender_BufferFree(&toplevel_handle->desktop_entry.icon_buf);
 
     free(toplevel_handle);
 }

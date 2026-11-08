@@ -4,7 +4,8 @@
         {
             "label": "make-debug",
             "type": "shell",
-            "command": "cd \"${workspaceFolder}\" && env CFLAGS=\"-DDEBUG_DAMAGE=1 -fsanitize=address -O0 -g -march=x86-64-v3\" make -B -j$(nproc)",
+            //"command": "cd \"${workspaceFolder}\" && env CFLAGS=\"-DDEBUG_DAMAGE=1 -fsanitize=address -O0 -g -march=x86-64-v3\" make -B -j$(nproc)",
+            "command": "cd \"${workspaceFolder}\" && env CFLAGS=\"-fsanitize=address -O0 -g -march=x86-64-v3\" make -B -j$(nproc)",
             "group": "build",
             "presentation": {
                 "reveal": "always",

@@ -12,6 +12,7 @@
 
 #include "Globals.h"
 
+#include "SWRender/SWRender.h"
 #include "SWRender/FTEssentials.h"
 #include "SWRender/FTRender.h"
 
@@ -228,8 +229,10 @@ void Desktop_Update(struct Desktop *desktop)
     struct PointerBtnState *lmb_state = Pointer_GetBtnState(pointer_state, 272);
     struct PointerBtnState *rmb_state = Pointer_GetBtnState(pointer_state, 273);
 
+    struct wl_region *input_region = wl_compositor_create_region(wl_compositor);
+
     // update selected icon state
-    if (desktop->selected_handle && desktop->selected_handle->arrangement.visible)
+    if (desktop->selected_handle && desktop->selected_handle->desktop_entry.visible)
     {
         if (lmb_state->double_click)
         {
@@ -240,9 +243,9 @@ void Desktop_Update(struct Desktop *desktop)
 
         if (lmb_state->drag_start)
         {
-            desktop->icon_drag_start_x = desktop->selected_handle->arrangement.x;
-            desktop->icon_drag_start_y = desktop->selected_handle->arrangement.y;
-            desktop->selected_handle->arrangement.recalc_position_when_minimize = false;
+            desktop->icon_drag_start_x = desktop->selected_handle->desktop_entry.x;
+            desktop->icon_drag_start_y = desktop->selected_handle->desktop_entry.y;
+            desktop->selected_handle->desktop_entry.recalc_position_when_minimize = false;
         }
 
         if (lmb_state->dragging)
@@ -254,10 +257,10 @@ void Desktop_Update(struct Desktop *desktop)
                 // clear its old position
                 Desktop_AddDamage(
                     desktop,
-                    desktop->selected_handle->arrangement.x,
-                    desktop->selected_handle->arrangement.y,
-                    DESKTOP_DEFAULT_ICON_SIZE_X,
-                    DESKTOP_DEFAULT_ICON_SIZE_Y
+                    desktop->selected_handle->desktop_entry.x,
+                    desktop->selected_handle->desktop_entry.y,
+                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y
                 );
 
             #if DEBUG_DAMAGE == 1
@@ -268,20 +271,20 @@ void Desktop_Update(struct Desktop *desktop)
                 int drag_dist_y = pointer_state->y_int - lmb_state->drag_start_y_int;
 
                 // set new position and request redraw
-                desktop->selected_handle->arrangement.x = desktop->icon_drag_start_x + drag_dist_x;
-                desktop->selected_handle->arrangement.y = desktop->icon_drag_start_y + drag_dist_y;
+                desktop->selected_handle->desktop_entry.x = desktop->icon_drag_start_x + drag_dist_x;
+                desktop->selected_handle->desktop_entry.y = desktop->icon_drag_start_y + drag_dist_y;
 
                 // limit position
-                if (desktop->selected_handle->arrangement.x < -DESKTOP_DEFAULT_ICON_SIZE_X / 2)
-                    desktop->selected_handle->arrangement.x = -DESKTOP_DEFAULT_ICON_SIZE_X / 2;
-                if (desktop->selected_handle->arrangement.y < -DESKTOP_DEFAULT_ICON_SIZE_Y / 2)
-                    desktop->selected_handle->arrangement.y = -DESKTOP_DEFAULT_ICON_SIZE_Y / 2;
-                if (desktop->selected_handle->arrangement.x >= desktop->desktop_layer_surface.w - (DESKTOP_DEFAULT_ICON_SIZE_X / 2))
-                    desktop->selected_handle->arrangement.x = desktop->desktop_layer_surface.w - (DESKTOP_DEFAULT_ICON_SIZE_X / 2) - 1;
-                if (desktop->selected_handle->arrangement.y >= desktop->desktop_layer_surface.h - (DESKTOP_DEFAULT_ICON_SIZE_Y / 2))
-                    desktop->selected_handle->arrangement.y = desktop->desktop_layer_surface.h - (DESKTOP_DEFAULT_ICON_SIZE_Y / 2) - 1;
+                if (desktop->selected_handle->desktop_entry.x < -DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X / 2)
+                    desktop->selected_handle->desktop_entry.x = -DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X / 2;
+                if (desktop->selected_handle->desktop_entry.y < -DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y / 2)
+                    desktop->selected_handle->desktop_entry.y = -DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y / 2;
+                if (desktop->selected_handle->desktop_entry.x >= desktop->desktop_layer_surface.w - (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X / 2))
+                    desktop->selected_handle->desktop_entry.x = desktop->desktop_layer_surface.w - (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X / 2) - 1;
+                if (desktop->selected_handle->desktop_entry.y >= desktop->desktop_layer_surface.h - (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y / 2))
+                    desktop->selected_handle->desktop_entry.y = desktop->desktop_layer_surface.h - (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y / 2) - 1;
 
-                desktop->selected_handle->arrangement.redraw = true;
+                desktop->selected_handle->desktop_entry.redraw = true;
             }
         }
     }
@@ -304,15 +307,15 @@ void Desktop_Update(struct Desktop *desktop)
 
         while ((toplevel_handle = HashSet_IterNext(&iter)))
         {
-            struct ToplevelHandle_DesktopIconArrangement *arrangement =
-                &toplevel_handle->arrangement;
+            struct ToplevelHandle_DesktopEntry *arrangement =
+                &toplevel_handle->desktop_entry;
 
             SWRenderRectI rect_this_icon =
             {
                 arrangement->x,
                 arrangement->y,
-                DESKTOP_DEFAULT_ICON_SIZE_X,
-                DESKTOP_DEFAULT_ICON_SIZE_Y,
+                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y,
             };
 
             // redraw original position
@@ -322,8 +325,8 @@ void Desktop_Update(struct Desktop *desktop)
                     desktop,
                     arrangement->x,
                     arrangement->y,
-                    DESKTOP_DEFAULT_ICON_SIZE_X,
-                    DESKTOP_DEFAULT_ICON_SIZE_Y
+                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y
                 );
 
             #if DEBUG_DAMAGE == 1
@@ -333,15 +336,11 @@ void Desktop_Update(struct Desktop *desktop)
                 arrangement->redraw = false;
             }
 
-            // skip if not visible
-            if (!arrangement->visible)
-                continue;
-
             // recalculate position?
-            if (arrangement->recalc_position || !arrangement->has_position)
+            if (arrangement->visible && (arrangement->recalc_position || !arrangement->has_position))
             {
-                int new_pos_x = 0;
-                int new_pos_y = desktop->desktop_layer_surface.h - DESKTOP_DEFAULT_ICON_SIZE_Y - 1;
+                int new_pos_x = 1;
+                int new_pos_y = desktop->desktop_layer_surface.h - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y - 1;
 
                 rect_this_icon.x = new_pos_x;
                 rect_this_icon.y = new_pos_y;
@@ -368,8 +367,8 @@ void Desktop_Update(struct Desktop *desktop)
                             if (toplevel_handle_overlap_chk == toplevel_handle)
                                 continue;
 
-                            struct ToplevelHandle_DesktopIconArrangement *arrangement_overlap_chk =
-                                &toplevel_handle_overlap_chk->arrangement;
+                            struct ToplevelHandle_DesktopEntry *arrangement_overlap_chk =
+                                &toplevel_handle_overlap_chk->desktop_entry;
 
                             // skip invisible
                             if (!arrangement_overlap_chk->visible || !arrangement_overlap_chk->has_position)
@@ -381,8 +380,8 @@ void Desktop_Update(struct Desktop *desktop)
                             {
                                 arrangement_overlap_chk->x,
                                 arrangement_overlap_chk->y,
-                                DESKTOP_DEFAULT_ICON_SIZE_X,
-                                DESKTOP_DEFAULT_ICON_SIZE_Y,
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y,
                             });
 
                             if (SWRender_GetIntersectionBetweenBoundInt(&bounds_this_icon, &bound_overlap_chk_icon, NULL))
@@ -396,11 +395,11 @@ void Desktop_Update(struct Desktop *desktop)
                     if (!has_overlap)
                         break;
 
-                    new_pos_x += DESKTOP_DEFAULT_ICON_SIZE_X;
-                    if (new_pos_x + DESKTOP_DEFAULT_ICON_SIZE_X >= desktop->w)
+                    new_pos_x += DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X + 1;
+                    if (new_pos_x + (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X + 1) >= desktop->w)
                     {
                         new_pos_x = 0;
-                        new_pos_y -= DESKTOP_DEFAULT_ICON_SIZE_Y;
+                        new_pos_y -= DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y + 1;
                     }
                     
                     // update bounds to new position
@@ -415,7 +414,7 @@ void Desktop_Update(struct Desktop *desktop)
                 // redraw new position
                 if (arrangement->visible)
                 {
-                    Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DESKTOP_DEFAULT_ICON_SIZE_X, DESKTOP_DEFAULT_ICON_SIZE_Y);
+                    Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y);
 
                     printf("redraw request '%s' on (%d, %d)\n", toplevel_handle->title ? toplevel_handle->title : "NULL", arrangement->x, arrangement->y);
                 }
@@ -427,10 +426,25 @@ void Desktop_Update(struct Desktop *desktop)
                 arrangement->has_position = true;
             }
 
-            if (lmb_state->pressed && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
+            if (arrangement->visible && arrangement->has_position)
             {
-                pressed_on_icon = true;
-                desktop->selected_handle = toplevel_handle;
+                // input region
+                if (input_region)
+                    {
+                    wl_region_add(
+                        input_region,
+                        rect_this_icon.x,
+                        rect_this_icon.y,
+                        rect_this_icon.w,
+                        rect_this_icon.h
+                    );
+                }
+
+                if (lmb_state->pressed && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
+                {
+                    pressed_on_icon = true;
+                    desktop->selected_handle = toplevel_handle;
+                }
             }
         }
     }
@@ -444,6 +458,11 @@ void Desktop_Update(struct Desktop *desktop)
     if (rmb_state->pressed)
         desktop->debug_key_pressed = true;
 #endif
+
+    // input region
+    wl_surface_set_input_region(desktop->desktop_layer_surface.double_buffered_surface.surface, input_region);
+    if (input_region)
+        wl_region_destroy(input_region);
 
     PointerState_PostDispatch(pointer_state);
 }
@@ -534,16 +553,16 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                 
                 while ((toplevel_handle = HashSet_IterNext(&iter_toplevel_handles)))
                 {
-                    if (!(toplevel_handle->arrangement.visible && toplevel_handle->arrangement.has_position))
+                    if (!(toplevel_handle->desktop_entry.visible && toplevel_handle->desktop_entry.has_position))
                         continue;
                     
                     // get bounds of icon
                     SWRenderRectI icon_rect =
                     {
-                        toplevel_handle->arrangement.x - redraw_rect.x + 1,
-                        toplevel_handle->arrangement.y - redraw_rect.y + 1,
-                        DESKTOP_DEFAULT_ICON_SIZE_X - 2,
-                        DESKTOP_DEFAULT_ICON_SIZE_Y - 2,
+                        toplevel_handle->desktop_entry.x - redraw_rect.x,
+                        toplevel_handle->desktop_entry.y - redraw_rect.y,
+                        DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                        DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y,
                     };
                     SWRenderBoundI icon_bounds;
                     SWRender_RectToBoundInt(&icon_bounds, &icon_rect);
@@ -557,27 +576,43 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                 #endif
 
                     // draw icon background
-                    SWRender_FillRect(&render_buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 255 }, true);
-
-                    // draw app icon?
+                    SWRender_FillRect(&render_buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 127 }, false);
 
                     // draw text
-                    SWRenderBuffer buf_text_draw;
-                    if (SWRender_BufferCrop(&buf_text_draw, &render_buf_redraw, &icon_bounds))
+                    SWRenderBuffer buf_icon_draw;
+                    if (SWRender_BufferCrop(&buf_icon_draw, &render_buf_redraw, &icon_bounds))
                     {
-                        FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(9.5F));
+                        FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SIZE));
                         FTRender_RenderStrWithAlign(
                             &global_ft_state,
-                            &buf_text_draw,
+                            &buf_icon_draw,
                             // TODO: use relative coord. instad of (0, 0)
                             // this (0, 0) coordinate introduces bug but i want to keep it a for while until finished
                             // because it somehow funny looks like some unresponsive windows in Windows GDI era
-                            INT_TO_F26DOT6(0),
-                            INT_TO_F26DOT6(0),
+                            INT_TO_F26DOT6(buf_icon_draw.w / 2),
+                            INT_TO_F26DOT6(
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING +
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y +
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SPACING
+                            ),
                             toplevel_handle->title,
-                            -1, -1,
+                            0, -1,
                             (SWRenderColor){ 0, 0, 0, 255 }
                         );
+
+                        // icon size not same so commented out
+                        //SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &buf_icon_draw, (SWRenderVec2I){ (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2, 0 });
+
+                        SWRenderRectI icon_dst_rect =
+                        {
+                            (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
+                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING,
+                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X,
+                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y,
+                        };
+                        SWRenderBoundI icon_dst_bounds;
+                        SWRender_RectToBoundInt(&icon_dst_bounds, &icon_dst_rect);
+                        SWRender_CopyBufferScaled(&toplevel_handle->desktop_entry.icon_buf, NULL, &buf_icon_draw, &icon_dst_bounds);
                     }
                 }
             }

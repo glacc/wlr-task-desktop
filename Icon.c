@@ -1,7 +1,13 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "Icon.h"
 
-// Freedesktop icon lookup routine
+// Freedesktop Icon Lookup Routine
 // https://specifications.freedesktop.org/icon-theme/latest/
+
+// .ico extension?
+
+// .svg -> .png -> .xpm -> .ico(?)
 
 #include <stdio.h>
 #include <stddef.h>
@@ -9,13 +15,58 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <limits.h>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "Vector.h"
 
-static const char *dir_pixmaps = "/usr/share/pixmaps";
+#include "Utility.h"
+
+#include <linux/limits.h>
+
+static const char dir_default_append_local_icons[] = "/.local/share/icons";
+static const char dir_default_append_doticons[]    = "/.icons";
+static const char dir_default_append_icons[]       = "/icons";
+
+static const char dir_default_append_local_applications[] = "/.local/share/applications";
+static const char dir_default_append_applications[]       = "/applications";
+
+static const char dir_default_pixmaps[] = "/usr/share/pixmaps";
+
+static const char desktop_type_prefix[] = "Type=";
+static const char desktop_icon_prefix[] = "Icon=";
+
+static const char theme_type_prefix[]    = "Type=";
+static const char theme_size_prefix[]    = "Size=";
+static const char theme_scale_prefix[]   = "Scale=";
+static const char theme_context_prefix[] = "Context=";
+
+static const char *icon_extensions[] =
+{
+    ".svg",
+    ".png",
+    ".xpm",
+    //".ico", // extended .ico support?
+};
+
+static struct Vector Icon_search_dirs_icons = { };
+static struct Vector Icon_search_dirs_applications = { };
+static bool Icon_search_dirs_initialized = false;
+
+static void Icon_PrintFailedToSNPrintError(void)
+{
+    fprintf(stderr, "failed to call snprintf path: %s\n", strerror(errno));
+}
+
+static void Icon_PrintSearchDirAppendFailError(const char *dir)
+{
+    fprintf(stderr, "failed to append search dir: %s\n", dir);
+}
 
 // mainly for $XDG_DATA_DIRS
-static void Icon_SplitEnvDir(struct Vector *search_dirs, const char *env_dir)
+static void Icon_SplitEnvDir(struct Vector *search_dirs_icons, struct Vector *search_dirs_applications, const char *env_dir)
 {
     const char *ptr_split_start = env_dir;
     const char *ptr_split_end   = env_dir;
@@ -54,12 +105,12 @@ static void Icon_SplitEnvDir(struct Vector *search_dirs, const char *env_dir)
 
         if (this_str_len > 0)
         {
-            char *str_split_out = malloc(this_str_len + 1);
+            char *str_split_out = malloc(this_str_len + sizeof(dir_default_append_icons));
 
             if (!str_split_out)
             {
                 fprintf(stderr, "failed to allocate memory for search dir: %s\n", strerror(errno));
-                goto OutDirname;
+                goto OutDir;
             }
 
             // duplicate first
@@ -92,17 +143,41 @@ static void Icon_SplitEnvDir(struct Vector *search_dirs, const char *env_dir)
             if (ptr_from_last_char < str_split_out)
             {
                 free(str_split_out);
-                goto OutDirname;
+                goto OutDir;
             }
 
-            // append to search dirs
-            if (!Vector_Add(search_dirs, &str_split_out))
+            size_t trimmed_len = (ptr_from_last_char + 1) - str_split_out;
+
+            // duplicate for applications
+            char *str_split_out_icons = str_split_out;
+            char *str_split_out_applications = malloc(trimmed_len + sizeof(dir_default_append_applications));
+
+            if (!str_split_out_applications)
             {
-                fprintf(stderr, "failed to append search dir: %s\n", strerror(errno));
-                free(str_split_out);
+                free(str_split_out_applications);
+                goto OutDir;
+            }
+
+            memcpy(str_split_out_applications, str_split_out, trimmed_len);
+
+            // append "/icons"
+            strcpy(ptr_from_last_char + 1, dir_default_append_icons);
+            strcpy(str_split_out_applications + trimmed_len, dir_default_append_applications);
+
+            // append to search dirs
+            if (!Vector_Add(search_dirs_icons, &str_split_out_icons))
+            {
+                Icon_PrintSearchDirAppendFailError(str_split_out_icons);
+                free(str_split_out_icons);
+            }
+
+            if (!Vector_Add(search_dirs_applications, &str_split_out_applications))
+            {
+                Icon_PrintSearchDirAppendFailError(str_split_out_applications);
+                free(str_split_out_applications);
             }
         }
-    OutDirname:
+    OutDir:
 
         // break if this is last string to split
         if (last_split)
@@ -113,99 +188,583 @@ static void Icon_SplitEnvDir(struct Vector *search_dirs, const char *env_dir)
     }
 }
 
-static bool Icon_GetSearchDirs(struct Vector *search_dirs)
+static bool Icon_InitSearchDirs(void)
 {
-    // https://specifications.freedesktop.org/icon-theme/latest/#directory_layout
-    char *env_home          = getenv("HOME");
-    char *env_xdg_data_home = getenv("XDG_DATA_HOME");
-    char *env_xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (!Vector_Init(&Icon_search_dirs_applications, sizeof(char *)))
+    {
+        fprintf(stderr, "failed to initialize vector for application search dirs: %s\n", strerror(errno));
+        return false;
+    }
 
-    // home
+    if (!Vector_Init(&Icon_search_dirs_icons, sizeof(char *)))
+    {
+        fprintf(stderr, "failed to initialize vector for icon search dirs: %s\n", strerror(errno));
+        Vector_Cleanup(&Icon_search_dirs_applications);
+        return false;
+    }
+    
+    // https://specifications.freedesktop.org/icon-theme/latest/#directory_layout
+    const char *env_home          = getenv("HOME");
+    const char *env_xdg_data_home = getenv("XDG_DATA_HOME");
+    const char *env_xdg_data_dirs = getenv("XDG_DATA_DIRS");
+
+    char buf_dir[PATH_MAX];
+
     if (env_home)
     {
-        char *dir_home = strdup(env_home);
-        if (dir_home)
-            Vector_Add(search_dirs, &dir_home);
+        // $HOME/.icons
+        if (snprintf(buf_dir, sizeof(buf_dir), "%s%s", env_home, dir_default_append_doticons) >= 0)
+        {
+            char *dir_home_icons = strdup(buf_dir);
+
+            if (dir_home_icons)
+            {
+                if (!Vector_Add(&Icon_search_dirs_icons, &dir_home_icons))
+                {
+                    Icon_PrintSearchDirAppendFailError(dir_home_icons);
+                    free(dir_home_icons);
+                }
+            }
+        }
+        else
+            Icon_PrintFailedToSNPrintError();
     }
 
-    // xdg_data_dirs
+    // $XDG_DATA_HOME/icons
+    // $HOME/.local/share/icons
+    bool has_home_data_dir = false;
+
+    if (env_xdg_data_home)
+    {
+        if (sprintf(buf_dir, "%s%s", env_xdg_data_home, dir_default_append_icons) >= 0)
+            has_home_data_dir = true;
+        else
+            Icon_PrintFailedToSNPrintError();
+    }
+    else if (env_home)
+    {
+        if (sprintf(buf_dir, "%s%s", env_home, dir_default_append_local_icons) >= 0)
+            has_home_data_dir = true;
+        else
+            Icon_PrintFailedToSNPrintError();
+    }
+
+    if (has_home_data_dir)
+    {
+        char *dir_xdg_data_home_icons = strdup(buf_dir);
+
+        if (dir_xdg_data_home_icons)
+        {
+            if (!Vector_Add(&Icon_search_dirs_icons, &dir_xdg_data_home_icons))
+            {
+                Icon_PrintSearchDirAppendFailError(dir_xdg_data_home_icons);
+                free(dir_xdg_data_home_icons);
+            }
+        }
+    }
+
+    // $XDG_DATA_DIRS/icons
     if (env_xdg_data_dirs)
+        Icon_SplitEnvDir(&Icon_search_dirs_icons, &Icon_search_dirs_applications, env_xdg_data_dirs);
+
+    // /usr/share/pixmaps
+    // commented out because dir arrangement differs to above
+#if 0
+    char *dir_pixmaps = strdup(dir_default_pixmaps);
+
+    if (dir_pixmaps)
     {
-        
+        if (!Vector_Add(&Icon_search_dirs, &dir_pixmaps))
+        {
+            Icon_PrintSearchDirAppendFailError(dir_pixmaps);
+            free(dir_pixmaps);
+        }
+    }
+#endif
+
+    // list
+    struct Vector_Iter iter = { };
+
+    if (Vector_IterInit(&iter, &Icon_search_dirs_icons))
+    {
+        char **ptr_dir_ptr = NULL;
+        int item_count = 1;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+            printf("icon search dir #%d: %s\n", item_count++, *ptr_dir_ptr);
     }
 
-    return NULL;
-}
-
-static char *Icon_LookupIcon(const char *iconname, int size, int scale, const char *theme)
-{
-    struct Vector search_dirs;   // typeof(char *)
-    if (!Vector_Init(&search_dirs, sizeof(char *)))
+    if (Vector_IterInit(&iter, &Icon_search_dirs_applications))
     {
-        fprintf(stderr, "failed to initialize Vector for icon lookup: %s\n", strerror(errno));
-        return NULL;
+        char **ptr_dir_ptr = NULL;
+        int item_count = 1;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+            printf("application search dir #%d: %s\n", item_count++, *ptr_dir_ptr);
     }
-
-    return NULL;
-}
-
-static char *Icon_FindIconHelper(const char *icon, int size, int scale, const char *theme)
-{
-    char *filepath = NULL;
-    
-    if ((filepath = Icon_LookupIcon(icon, size, scale, theme)))
-        return filepath;
-
-    // if theme has parents
-    // ...
-
-    // not found
-    return NULL;
-}
-
-bool Icon_Find(const char *icon, int size, int scale, char *out_filepath)
-{
-    if (!(icon && out_filepath))
-        return false;
-
-    
-
 
     return true;
 }
 
-void Icon_TestFunctions(void)
+bool Icon_Init(void)
 {
-    printf("XDG_DATA_DIRS=");
+    if (Icon_search_dirs_initialized)
+        return true;
 
-    const char *xdg_data_dir = getenv("XDG_DATA_DIRS");
+    if (!Icon_InitSearchDirs())
+        return false;
 
-    if (!xdg_data_dir)
-    {
-        puts("NULL");
+    Icon_search_dirs_initialized = true;
+
+    return true;
+}
+
+void Icon_Cleanup(void)
+{
+    if (!Icon_search_dirs_initialized)
         return;
-    }
-    else
-        puts(xdg_data_dir);
-
-    struct Vector search_dirs;
-    if (!Vector_Init(&search_dirs, sizeof(char *)))
-    {
-        fprintf(stderr, "failed to initialize Vector for search dirs: %s\n", strerror(errno));
-        return;
-    }
-
-    Icon_SplitEnvDir(&search_dirs, xdg_data_dir);
 
     struct Vector_Iter iter = { };
-    
-    if (Vector_IterInit(&iter, &search_dirs))
+
+    // icons
+    if (Vector_IterInit(&iter, &Icon_search_dirs_icons))
     {
-        char **ptr_search_dir_ptr = NULL;
-        
-        while ((ptr_search_dir_ptr = Vector_IterNext(&iter)))
-            puts(*ptr_search_dir_ptr);
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+            free(*ptr_dir_ptr);
+    }
+    Vector_Cleanup(&Icon_search_dirs_icons);
+
+    // applications
+    if (Vector_IterInit(&iter, &Icon_search_dirs_applications))
+    {
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+            free(*ptr_dir_ptr);
+    }
+    Vector_Cleanup(&Icon_search_dirs_applications);
+
+    Icon_search_dirs_initialized = false;
+}
+
+static bool Icon_GetTypeAndIconByAppId(const char *app_id, char **type, char **icon)
+{
+    size_t len_app_id = strlen(app_id);
+    char path[PATH_MAX];
+
+    struct Vector_Iter iter = { };
+
+    // find .desktop file in search dirs by app_id
+    bool desktop_file_found = false;
+    
+    if (Vector_IterInit(&iter, &Icon_search_dirs_applications))
+    {
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+        {
+            char *dir = *ptr_dir_ptr;
+            size_t len_dir = strlen(dir);
+
+            snprintf(path, sizeof(path), "%s/%s.desktop", dir, app_id);
+            
+            FILE *dotdesktop_file = fopen(path, "r");
+
+            if (dotdesktop_file)
+            {
+                char *line = NULL;
+                size_t linesize = 0;
+                ssize_t bytes_read;
+                bool is_in_desktop_entry = false;
+                bool has_malloc_error = false;
+
+                while ((bytes_read = getline(&line, &linesize, dotdesktop_file)) != -1)
+                {
+                    size_t line_len = bytes_read;
+                    line[line_len - 1] = '\0';
+                    line_len--;
+
+                    if (Utility_IsStrStartsWith(line, "[") && Utility_IsStrEndsWith(line, "]"))
+                    {
+                        is_in_desktop_entry = !strcmp(line, "[Desktop Entry]");
+                        continue;
+                    }
+
+                    if (!is_in_desktop_entry)
+                        continue;
+
+                    if (Utility_IsStrStartsWith(line, desktop_type_prefix))
+                    {
+                        if (!(*type = Utility_DupSubString(line, sizeof(desktop_type_prefix) - 1, SIZE_MAX)))
+                        {
+                            has_malloc_error = true;
+                            break;
+                        }
+                    }
+
+                    if (Utility_IsStrStartsWith(line, desktop_icon_prefix))
+                    {
+                        if (!(*icon = Utility_DupSubString(line, sizeof(desktop_icon_prefix) - 1, SIZE_MAX)))
+                        {
+                            has_malloc_error = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (line)
+                    free(line);
+
+                if (ferror(dotdesktop_file))
+                {
+                    fprintf(stderr, "fail reading file '%s': %s\n", path, strerror(errno));
+                    fclose(dotdesktop_file);
+                    break;
+                }
+                
+                // parse done, closing
+                fclose(dotdesktop_file);
+
+                if (has_malloc_error)
+                {
+                    fprintf(stderr, "fail to allocate memory for type/icon string: %s\n", strerror(errno));
+
+                    if (*type)
+                    {
+                        free(*type);
+                        *type = NULL;
+                    }
+
+                    if (*icon)
+                    {
+                        free(*icon);
+                        *icon = NULL;
+                    }
+
+                    return false;
+                }
+
+                return true;
+            }
+        }
     }
 
-    Vector_Cleanup(&search_dirs);
+    return false;
+}
+
+static bool Icon_GetPathByTypeAndIconInThemeFolder(const char *dir, const char *theme, const char *type, const char *icon, int size, int scale, char **out_path)
+{
+    char path[PATH_MAX];
+    FILE *index_file = NULL;
+
+    // open index file
+    if (snprintf(path, sizeof(path), "%s/%s/index.theme", dir, theme) < 0)
+    {
+        Icon_PrintFailedToSNPrintError();
+        return false;
+    }
+
+    if (!(index_file = fopen(path, "r")))
+    {
+        //fprintf(stderr, "failed to open theme index '%s': %s\n", path, strerror(errno));
+        return false;
+    }
+    
+    // read file and most fit select variant
+    char icon_path_to_check[PATH_MAX];
+    char icon_path[PATH_MAX];
+
+    bool icon_found = false;
+
+    // current state
+    char *curr_key = NULL;
+    int curr_key_scale = 1;
+    int curr_key_size  = 0;
+    bool curr_key_scalable = false;
+
+    // chosen icon state
+    char *selected_key = NULL;
+    int selected_scale = 1;//INT_MAX;
+    int selected_size  = 0;//INT_MAX;
+    bool selected_scalable = false;
+
+    bool context_is_applications = false;
+
+    char *line_str = NULL;
+    size_t linesize = 0;
+    ssize_t bytes_read;
+
+    while (true)
+    {
+        bytes_read = getline(&line_str, &linesize, index_file);
+        size_t line_len = bytes_read;
+
+        bool store_state = false;
+        bool switch_state = false;
+
+        if (bytes_read > 0)
+        {
+            line_str[line_len - 1] = '\0';
+            line_len--;
+
+            // when new key occurs
+            if (Utility_IsStrStartsWith(line_str, "[") &&
+                Utility_IsStrEndsWith(line_str, "]") &&
+                strcmp(line_str, "[Icon Theme]"))
+            {
+                // store state change state when find new key
+                if (curr_key)
+                    store_state = true;
+
+                switch_state = true;
+            }
+        }
+
+        // save state for last read
+        if (bytes_read < 0)
+            store_state = true;
+
+        // try save if context valid and type is Applications 
+        if (store_state && curr_key && context_is_applications)
+        {
+            // check fit and save state if inside a valid key
+            if (!selected_scalable)
+            {
+                bool icon_exists_here = false;
+
+                // check existance
+                // TODO: check existance here...
+                FILE *icon_file = NULL;
+                for (int i = 0; i < sizeof(icon_extensions) / sizeof(icon_extensions[0]); i++)
+                {
+                    // basedir/theme/key/icon.ext
+                    if (snprintf(icon_path_to_check, sizeof(icon_path_to_check), "%s/%s/%s/%s%s", dir, theme, curr_key, icon, icon_extensions[i]) < 0)
+                        break;
+
+                    if ((icon_file = fopen(icon_path_to_check, "rb")))
+                    {
+                        icon_exists_here = true;
+                        fclose(icon_file);
+                        break;
+                    }
+                }
+
+                // - non-standard implemention- 
+                // A. scalable first (FIXME: not implement yet)
+                // B. when scalable not available
+                //  1. fit scale (increase until equal)
+                //  2. fit size  (enlarge to larger then shrink to fit)
+                if (icon_exists_here)
+                {
+                    // fit scale first
+                    // from 1x until equal
+                    bool scale_fit =
+                        (curr_key_scale <= scale) &&
+                        (curr_key_scale <= selected_scale);
+                    
+                    // then fit size;
+                    bool size_fit;
+                    
+                    if (selected_size < size)
+                    {
+                        // enlarge first
+                        size_fit = (curr_key_size > selected_size);
+                    }
+                    else
+                    {
+                        // most close to 
+                        size_fit =
+                            (curr_key_size >= size) &&
+                            (curr_key_size < selected_size);
+                    }
+                    
+                    // select when both fit
+                    if (scale_fit && size_fit)
+                    {
+                        if (selected_key)
+                            free(selected_key);
+
+                        selected_key = curr_key;
+
+                        selected_scale = curr_key_scale;
+                        selected_size  = curr_key_size;
+
+                        strcpy(icon_path, icon_path_to_check);
+
+                        icon_found = true;
+                    }
+                }
+            }
+        }
+
+        if (store_state)
+        {
+            // reset current state
+            curr_key_size  = 0;
+            curr_key_scale = 1;
+            curr_key_scalable = false;
+            context_is_applications = false;
+        }
+
+        if (switch_state)
+        {
+            // switch current key
+            if (curr_key && (curr_key != selected_key))
+                free(curr_key);
+
+            // release when fail
+            if (!(curr_key = Utility_DupSubString(line_str, 1, line_len - 2)))
+            {
+                fprintf(stderr, "failed to extract directory from key '%s': %s\n", line_str, strerror(errno));
+                break;
+            }
+        }
+
+        // break if last read
+        if (bytes_read < 0)
+            break;
+
+        // dont extract value when no valid key pending
+        if (!curr_key)
+            continue;
+
+        // read values
+        if (Utility_IsStrStartsWith(line_str, theme_context_prefix))
+        {
+            if (!strcmp(line_str + sizeof(theme_context_prefix) - 1, "Applications"))//type))
+                context_is_applications = true;
+        }
+
+        if (Utility_IsStrStartsWith(line_str, theme_size_prefix))
+            curr_key_size = atoi(line_str + sizeof(theme_size_prefix) - 1);
+        
+        if (Utility_IsStrStartsWith(line_str, theme_scale_prefix))
+            curr_key_scale = atoi(line_str + sizeof(theme_scale_prefix) - 1);
+
+        if (Utility_IsStrStartsWith(line_str, theme_type_prefix))
+        {
+            if (!strcmp(line_str + sizeof(theme_type_prefix) - 1, "Scalable"))
+                curr_key_scalable = true;
+        }
+    }
+
+    // cleanup
+    if (line_str)
+        free(line_str);
+
+    if (curr_key)
+        free(curr_key);
+
+    if (selected_key)
+        free(selected_key);
+
+    if (ferror(index_file))
+    {
+        fprintf(stderr, "fail reading theme index '%s': %s\n", path, strerror(errno));
+        return false;
+    }
+
+    // not found
+    if (!icon_found)
+        return false;
+
+    // allocate memory for return string
+    size_t icon_path_size = strlen(icon_path) + 1;
+    char *icon_path_final = malloc(icon_path_size);
+    if (!icon_path_final)
+    {
+        fprintf(stderr, "fail allocating memory for icon path: %s\n", strerror(errno));
+        return false;
+    }
+    memcpy(icon_path_final, icon_path, icon_path_size);
+
+    *out_path = icon_path_final;
+
+    return true;
+}
+
+static bool Icon_GetPathByTypeAndIcon(const char *type, const char *icon, int size, int scale, char **out_path)
+{
+    // iter icon search path
+    struct Vector_Iter iter = { };
+
+    if (Vector_IterInit(&iter, &Icon_search_dirs_icons))
+    {
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+        {
+            char *dir = *ptr_dir_ptr;
+
+            // TODO: add theme support?
+            if (Icon_GetPathByTypeAndIconInThemeFolder(dir, "hicolor", type, icon, size, scale, out_path))
+                return true;
+        }
+    }
+
+    // pixmaps
+    char icon_path[PATH_MAX];
+
+    for (int i = 0; i < sizeof(icon_extensions) / sizeof(icon_extensions[0]); i++)
+    {
+        if (snprintf(icon_path, sizeof(icon_path), "%s/%s%s", dir_default_pixmaps, icon, icon_extensions[i]) < 0)
+            return false;
+
+        FILE *icon_file = fopen(icon_path, "rb");
+
+        if (icon_file)
+        {
+            fclose(icon_file);
+
+            size_t icon_path_size = strlen(icon_path) + 1;
+            char *icon_path_final = malloc(icon_path_size);
+            if (!icon_path_final)
+            {
+                fprintf(stderr, "fail allocating memory for icon path: %s\n", strerror(errno));
+                return false;
+            }
+            memcpy(icon_path_final, icon_path, icon_path_size);
+
+            *out_path = icon_path_final;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Icon_FindAppIconPath(const char *app_id, int size, int scale, char **out_path)
+{
+    if (!Icon_search_dirs_initialized)
+        return false;
+
+    if (!(app_id && out_path))
+        return false;
+
+    bool success = false;
+    char *type = NULL;
+    char *icon = NULL;
+
+    Icon_GetTypeAndIconByAppId(app_id, &type, &icon);
+
+    // TODO: app_id ends with .exe -> Wine specified icon find method?
+    if (!(type && icon))
+    {
+        success = false;
+        goto End;
+    }
+    
+    Icon_GetPathByTypeAndIcon(type, icon, size, scale, out_path);
+
+End:
+    if (type)
+        free(type);
+
+    if (icon)
+        free(icon);
+
+    return success;
 }

@@ -22,19 +22,32 @@ static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint
 
     if (down)
     {
+        // double click check
         uint32_t time_between_last_click = time - btn_state->pressed_time;
+
         if (time_between_last_click < POINTER_DOUBLE_CLICK_TIME_MS)
         {
-            // TODO: check distance between clicks...
-            btn_state->double_click = true;
+            wl_fixed_t dist_sq_between_presses = Utility_DistSqBetweenVecWlFixed(
+                btn_state->pressed_x,
+                btn_state->pressed_y,
+                pointer_state->x,
+                pointer_state->y
+            );
+
+            // not double click if distance too far between two presses
+            if (dist_sq_between_presses < POINTER_DOUBLE_CLICK_DIST_THRESHOLD_SQ_WL_FIXED)
+            {
+                btn_state->double_click = true;
             
-            btn_state->double_click_x = pointer_state->x;
-            btn_state->double_click_x = pointer_state->y;
-            btn_state->double_click_x_int = pointer_state->x_int;
-            btn_state->double_click_x_int = pointer_state->y_int;
-            btn_state->double_click_time = time;
+                btn_state->double_click_x = pointer_state->x;
+                btn_state->double_click_x = pointer_state->y;
+                btn_state->double_click_x_int = pointer_state->x_int;
+                btn_state->double_click_x_int = pointer_state->y_int;
+                btn_state->double_click_time = time;
+            }
         }
 
+        // set press state
         btn_state->pressed_x = pointer_state->x;
         btn_state->pressed_y = pointer_state->y;
         btn_state->pressed_x_int = pointer_state->x_int;

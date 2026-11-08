@@ -14,8 +14,6 @@ static void ToplevelManagerListener_Toplevel(
     struct zwlr_foreign_toplevel_handle_v1 *zwlr_toplevel_handle
 )
 {
-    struct AppState *app_state = data;
-
     // construct
     struct ToplevelHandle *toplevel_handle = ToplevelHandle_Create();
 
@@ -34,7 +32,6 @@ static void ToplevelManagerListener_Toplevel(
     }
 
     toplevel_handle->toplevel_handle = zwlr_toplevel_handle;
-    toplevel_handle->app_state = app_state;
 
     zwlr_foreign_toplevel_handle_v1_add_listener(toplevel_handle->toplevel_handle, &ToplevelHandle_listener, toplevel_handle);
 }
@@ -44,8 +41,6 @@ static void ToplevelManagerListener_Finished(
     struct zwlr_foreign_toplevel_manager_v1 *zwlr_toplevel_manager
 )
 {
-    struct AppState *app_state = data;
-
     zwlr_foreign_toplevel_manager_v1_destroy(zwlr_toplevel_manager);
 }
 

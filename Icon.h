@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 
-extern bool Icon_Find(const char *icon, int size, int scale, char *out_path);
+extern bool Icon_Init(void);
+extern void Icon_Cleanup(void);
 
-extern void Icon_TestFunctions(void);
+extern bool Icon_FindAppIconPath(const char *app_id, int size, int scale, char **out_path);

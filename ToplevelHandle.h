@@ -6,7 +6,20 @@
 
 #include "HashSet.h"
 
-struct ToplevelHandle_DesktopIconArrangement
+#include "SWRender/SWRender.h"
+
+// TODO: make icon size configurable?
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X        96
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y        96
+
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X         64
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y         64
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING    6
+
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SPACING   4
+#define DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SIZE      8.5F
+
+struct ToplevelHandle_DesktopEntry
 {
     int x, y;
     bool has_position;
@@ -26,13 +39,13 @@ struct ToplevelHandle_DesktopIconArrangement
     bool recalc_position;
 
     bool redraw;
+
+    SWRenderBuffer icon_buf;
 };
 
 struct ToplevelHandle
 {
     struct zwlr_foreign_toplevel_handle_v1 *toplevel_handle;
-
-    struct AppState *app_state;
 
     char *title;
     char *app_id;
@@ -47,7 +60,7 @@ struct ToplevelHandle
     // only updated if there's only one Output in is_inside_outputs. NULL if zero.
     struct Desktop *iconify_to_desktop;
 
-    struct ToplevelHandle_DesktopIconArrangement arrangement;
+    struct ToplevelHandle_DesktopEntry desktop_entry;
 };
 
 extern struct ToplevelHandle *ToplevelHandle_Create(void);

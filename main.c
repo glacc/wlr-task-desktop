@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -505,8 +503,6 @@ int main(int argc, char *argv[])
 {
     int ret = 0;
 
-    Icon_TestFunctions();
-
     if (signal(SIGINT, SIGINTHandler) == SIG_ERR)
         fprintf(stderr, "failed to set signal handler: %s\n", strerror(errno));
 
@@ -514,7 +510,10 @@ int main(int argc, char *argv[])
     PrintEnv(ENV_XDG_DATA_HOME);
     PrintEnv(ENV_XDG_DATA_DIRS);
 
-    if (!Initialize())
+    bool init_success = true;
+    init_success = init_success && Icon_Init();
+    init_success = init_success && Initialize();
+    if (!init_success)
     {
         ret = EXIT_FAILURE;
         goto End;
@@ -526,6 +525,7 @@ int main(int argc, char *argv[])
 
 End:
     Cleanup();
+    Icon_Cleanup();
 
     return ret;
 }

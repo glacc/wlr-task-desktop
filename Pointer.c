@@ -63,8 +63,13 @@ static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint
         btn_state->release_time = time;
 
         btn_state->dragging = false;
-        btn_state->drag_stop = true;
-        btn_state->drag_stop_time = time;
+        
+        if (btn_state->dragging)
+        {
+            btn_state->drag_stop = true;
+            btn_state->drag_stop_time = time;
+        }
+
     }
 }
 

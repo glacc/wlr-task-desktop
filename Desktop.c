@@ -228,6 +228,7 @@ void Desktop_Update(struct Desktop *desktop)
     struct PointerState *pointer_state = &desktop->desktop_layer_surface.double_buffered_surface.pointer_state;
     struct PointerBtnState *lmb_state = Pointer_GetBtnState(pointer_state, 272);
     struct PointerBtnState *rmb_state = Pointer_GetBtnState(pointer_state, 273);
+    struct PointerBtnState *mmb_state = Pointer_GetBtnState(pointer_state, 274);
 
     struct wl_region *input_region = wl_compositor_create_region(wl_compositor);
 
@@ -246,6 +247,13 @@ void Desktop_Update(struct Desktop *desktop)
             desktop->icon_drag_start_x = desktop->selected_handle->desktop_entry.x;
             desktop->icon_drag_start_y = desktop->selected_handle->desktop_entry.y;
             desktop->selected_handle->desktop_entry.recalc_position_when_minimize = false;
+        }
+
+        if (mmb_state->release && !mmb_state->drag_stop)
+        {
+            zwlr_foreign_toplevel_handle_v1_close(
+                desktop->selected_handle->toplevel_handle
+            );
         }
 
         if (lmb_state->dragging)
@@ -440,7 +448,7 @@ void Desktop_Update(struct Desktop *desktop)
                     );
                 }
 
-                if (lmb_state->pressed && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
+                if ((lmb_state->pressed || mmb_state->pressed) && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
                 {
                     pressed_on_icon = true;
                     desktop->selected_handle = toplevel_handle;

@@ -14,6 +14,7 @@
 #include "Vector.h"
 
 #include "SWRender/FTEssentials.h"
+#include "SWRender/FTEssentialsWordWrap.h"
 
 #ifndef DEBUG_DAMAGE
 #define DEBUG_DAMAGE 0
@@ -41,5 +42,6 @@ extern struct Vector global_toplevel_handle_to_destroy;             // typeof(st
 extern struct Vector global_desktop_with_surface_creation_pending;  // typeof(struct Desktop *)
 
 extern FTEssentials_State global_ft_state;
+extern FTEssentialsWordWrap_LineBuffer global_ft_line_buffer;
 
 extern volatile sig_atomic_t global_exit;

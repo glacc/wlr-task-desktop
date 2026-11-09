@@ -28,6 +28,7 @@
 #include "Vector.h"
 
 #include "SWRender/FTEssentials.h"
+#include "SWRender/FTEssentialsWordWrap.h"
 
 #include "Icon.h"
 
@@ -68,7 +69,9 @@ static int display_fd = -1;
 static int local_event_pipefds[2] = { -1, -1 };
 
 FTEssentials_State global_ft_state = { };
+FTEssentialsWordWrap_LineBuffer global_ft_line_buffer = { };
 static const char *fontpath = "sw-render/MiSans_Regular.ttf";
+
 volatile sig_atomic_t global_exit = false;
 
 void PrintEnv(const char *env_name)
@@ -282,6 +285,12 @@ static bool Initialize(void)
         return false;
     }
 
+    if (!FTEssentialsWordWrap_LineBufferInit(&global_ft_line_buffer))
+    {
+        fprintf(stderr, "failed to init line buffer for FTRender: %s\n", strerror(errno));
+        return false;
+    }
+
     // bind registries
     wl_registry_add_listener(wl_registry, &wayland_registry_listener, NULL);
     wl_display_roundtrip(wl_display);
@@ -353,6 +362,7 @@ static void Cleanup(void)
     if (wl_display)
         wl_display_disconnect(wl_display);
 
+    FTEssentialsWordWrap_LineBufferCleanup(&global_ft_line_buffer);
     FTEssentials_Done(&global_ft_state);
 }
 

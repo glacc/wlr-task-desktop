@@ -14,7 +14,7 @@
 
 #include "SWRender/SWRender.h"
 #include "SWRender/FTEssentials.h"
-#include "SWRender/FTRender.h"
+#include "SWRender/FTRenderWordWrap.h"
 
 #pragma region WaylandListener
 
@@ -576,13 +576,17 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                 #endif
 
                     // draw icon background
-                    SWRender_FillRect(&render_buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 127 }, false);
+                    //SWRender_FillRect(&render_buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 63 }, false);
+                    SWRender_FillRectRounded(&render_buf_redraw, &(SWRenderBoundF){ icon_bounds.x1, icon_bounds.y1, icon_bounds.x2, icon_bounds.y2 }, 5.0f, (SWRenderColor){ 255, 255, 255, 63 });
 
                     // draw text
                     SWRenderBuffer buf_icon_draw;
                     if (SWRender_BufferCrop(&buf_icon_draw, &render_buf_redraw, &icon_bounds))
                     {
                         FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SIZE));
+                        global_ft_state.linespace_multiplier = 0.775F;
+
+                    #if 0
                         FTRender_RenderStrWithAlign(
                             &global_ft_state,
                             &buf_icon_draw,
@@ -596,9 +600,31 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                                 DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SPACING
                             ),
                             toplevel_handle->title,
+                            SIZE_MAX,
                             0, -1,
                             (SWRenderColor){ 0, 0, 0, 255 }
                         );
+                    #endif
+
+                        int text_top_y = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
+                                    + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y
+                                    + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SPACING;
+
+                        FTRenderWordWrap_RenderStrWithAlign(
+                            &global_ft_state,
+                            &global_ft_line_buffer,
+                            &buf_icon_draw,
+                            &(SWRenderRectF){
+                                0,
+                                text_top_y,
+                                buf_icon_draw.w,
+                                buf_icon_draw.h - text_top_y
+                            },
+                            toplevel_handle->title,
+                            0, -1,
+                            (SWRenderColor){ 0, 0, 0, 255 }
+                        );
+                            
 
                         // icon size not same so commented out
                         //SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &buf_icon_draw, (SWRenderVec2I){ (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2, 0 });

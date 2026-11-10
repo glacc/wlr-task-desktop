@@ -2,6 +2,9 @@
 
 #include "Icon.h"
 
+// this code is too messy
+// so i'd like to rewrite this one day...
+
 // Freedesktop Icon Lookup Routine
 // https://specifications.freedesktop.org/icon-theme/latest/
 
@@ -30,11 +33,10 @@
 static const char dir_default_append_local_icons[] = "/.local/share/icons";
 static const char dir_default_append_doticons[]    = "/.icons";
 static const char dir_default_append_icons[]       = "/icons";
+static const char dir_default_append_pixmaps[]     = "/pixmaps";
 
 static const char dir_default_append_local_applications[] = "/.local/share/applications";
 static const char dir_default_append_applications[]       = "/applications";
-
-static const char dir_default_pixmaps[] = "/usr/share/pixmaps";
 
 static const char desktop_type_prefix[] = "Type=";
 static const char desktop_icon_prefix[] = "Icon=";
@@ -53,8 +55,9 @@ static const char *icon_extensions[] =
     //".ico", // extended .ico support?
 };
 
-static struct Vector Icon_search_dirs_icons = { };
 static struct Vector Icon_search_dirs_applications = { };
+static struct Vector Icon_search_dirs_icons = { };
+static struct Vector Icon_search_dirs_pixmaps = { };
 static bool Icon_search_dirs_initialized = false;
 
 static void Icon_PrintFailedToSNPrintError(void)
@@ -68,7 +71,7 @@ static void Icon_PrintSearchDirAppendFailError(const char *dir)
 }
 
 // mainly for $XDG_DATA_DIRS
-static void Icon_SplitEnvDir(struct Vector *search_dirs_icons, struct Vector *search_dirs_applications, const char *env_dir)
+static void Icon_SplitEnvDir(const char *env_dir)
 {
     const char *ptr_split_start = env_dir;
     const char *ptr_split_end   = env_dir;
@@ -152,28 +155,46 @@ static void Icon_SplitEnvDir(struct Vector *search_dirs_icons, struct Vector *se
 
             // duplicate for applications
             char *str_split_out_icons = str_split_out;
+            char *str_split_out_pixmaps = malloc(trimmed_len + sizeof(dir_default_append_pixmaps));
             char *str_split_out_applications = malloc(trimmed_len + sizeof(dir_default_append_applications));
 
-            if (!str_split_out_applications)
+            if (!str_split_out_pixmaps || !str_split_out_applications)
             {
-                free(str_split_out_applications);
+                if (str_split_out_pixmaps)
+                    free(str_split_out_pixmaps);
+
+                if (str_split_out_applications)
+                    free(str_split_out_applications);
+
                 goto OutDir;
             }
 
+            memcpy(str_split_out_pixmaps, str_split_out, trimmed_len);
             memcpy(str_split_out_applications, str_split_out, trimmed_len);
 
             // append "/icons"
             strcpy(ptr_from_last_char + 1, dir_default_append_icons);
+
+            // append "/pixmaps"
+            strcpy(str_split_out_pixmaps + trimmed_len, dir_default_append_pixmaps);
+
+            // append "/applications"
             strcpy(str_split_out_applications + trimmed_len, dir_default_append_applications);
 
             // append to search dirs
-            if (!Vector_Add(search_dirs_icons, &str_split_out_icons))
+            if (!Vector_Add(&Icon_search_dirs_icons, &str_split_out_icons))
             {
                 Icon_PrintSearchDirAppendFailError(str_split_out_icons);
                 free(str_split_out_icons);
             }
 
-            if (!Vector_Add(search_dirs_applications, &str_split_out_applications))
+            if (!Vector_Add(&Icon_search_dirs_pixmaps, &str_split_out_pixmaps))
+            {
+                Icon_PrintSearchDirAppendFailError(str_split_out_pixmaps);
+                free(str_split_out_pixmaps);
+            }
+
+            if (!Vector_Add(&Icon_search_dirs_applications, &str_split_out_applications))
             {
                 Icon_PrintSearchDirAppendFailError(str_split_out_applications);
                 free(str_split_out_applications);
@@ -202,6 +223,14 @@ static bool Icon_InitSearchDirs(void)
     {
         fprintf(stderr, "failed to initialize vector for icon search dirs: %s\n", strerror(errno));
         Vector_Cleanup(&Icon_search_dirs_applications);
+        return false;
+    }
+
+    if (!Vector_Init(&Icon_search_dirs_pixmaps, sizeof(char *)))
+    {
+        fprintf(stderr, "failed to initialize vector for icon pixmap search dirs: %s\n", strerror(errno));
+        Vector_Cleanup(&Icon_search_dirs_applications);
+        Vector_Cleanup(&Icon_search_dirs_icons);
         return false;
     }
     
@@ -234,40 +263,52 @@ static bool Icon_InitSearchDirs(void)
 
     // $XDG_DATA_HOME/icons
     // $HOME/.local/share/icons
+    const char *home_dir = NULL;
     bool has_home_data_dir = false;
 
     if (env_xdg_data_home)
-    {
-        if (sprintf(buf_dir, "%s%s", env_xdg_data_home, dir_default_append_icons) >= 0)
-            has_home_data_dir = true;
-        else
-            Icon_PrintFailedToSNPrintError();
-    }
+        home_dir = env_xdg_data_home;
     else if (env_home)
-    {
-        if (sprintf(buf_dir, "%s%s", env_home, dir_default_append_local_icons) >= 0)
-            has_home_data_dir = true;
-        else
-            Icon_PrintFailedToSNPrintError();
-    }
+        home_dir = env_home;
 
-    if (has_home_data_dir)
+    if (home_dir)
     {
-        char *dir_xdg_data_home_icons = strdup(buf_dir);
+        size_t len_home_dir = strlen(home_dir);
+
+        // icons
+        char *dir_xdg_data_home_icons = malloc(len_home_dir + sizeof(dir_default_append_local_icons));
 
         if (dir_xdg_data_home_icons)
         {
+            memcpy(dir_xdg_data_home_icons, home_dir, len_home_dir);
+            memcpy(dir_xdg_data_home_icons + len_home_dir, dir_default_append_local_icons, sizeof(dir_default_append_local_icons));
+
             if (!Vector_Add(&Icon_search_dirs_icons, &dir_xdg_data_home_icons))
             {
                 Icon_PrintSearchDirAppendFailError(dir_xdg_data_home_icons);
                 free(dir_xdg_data_home_icons);
             }
         }
+
+        // applications
+        char *dir_xdg_data_home_applications = malloc(len_home_dir + sizeof(dir_default_append_local_applications));
+
+        if (dir_xdg_data_home_applications)
+        {
+            memcpy(dir_xdg_data_home_applications, home_dir, len_home_dir);
+            memcpy(dir_xdg_data_home_applications + len_home_dir, dir_default_append_local_applications, sizeof(dir_default_append_local_applications));
+
+            if (!Vector_Add(&Icon_search_dirs_applications, &dir_xdg_data_home_applications))
+            {
+                Icon_PrintSearchDirAppendFailError(dir_xdg_data_home_applications);
+                free(dir_xdg_data_home_applications);
+            }
+        }
     }
 
     // $XDG_DATA_DIRS/icons
     if (env_xdg_data_dirs)
-        Icon_SplitEnvDir(&Icon_search_dirs_icons, &Icon_search_dirs_applications, env_xdg_data_dirs);
+        Icon_SplitEnvDir(env_xdg_data_dirs);
 
     // /usr/share/pixmaps
     // commented out because dir arrangement differs to above
@@ -337,6 +378,16 @@ void Icon_Cleanup(void)
             free(*ptr_dir_ptr);
     }
     Vector_Cleanup(&Icon_search_dirs_icons);
+
+    // pixmaps
+    if (Vector_IterInit(&iter, &Icon_search_dirs_pixmaps))
+    {
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+            free(*ptr_dir_ptr);
+    }
+    Vector_Cleanup(&Icon_search_dirs_pixmaps);
 
     // applications
     if (Vector_IterInit(&iter, &Icon_search_dirs_applications))
@@ -670,7 +721,7 @@ static bool Icon_GetPathByTypeAndIconInThemeFolder(const char *dir, const char *
                     if (snprintf(icon_path_to_check, sizeof(icon_path_to_check), "%s/%s/%s/%s%s", dir, theme, curr_key, icon, icon_extensions[i]) < 0)
                         break;
 
-                    if ((icon_file = fopen(icon_path_to_check, "rb")))
+                    if ((icon_file = fopen(icon_path_to_check, "r")))
                     {
                         icon_exists_here = true;
                         fclose(icon_file);
@@ -831,33 +882,64 @@ static bool Icon_GetPathByTypeAndIcon(const char *type, const char *icon, int si
         }
     }
 
-    // pixmaps
     char icon_path[PATH_MAX];
 
-    for (int i = 0; i < sizeof(icon_extensions) / sizeof(icon_extensions[0]); i++)
+    // pixmaps
+    if (Vector_IterInit(&iter, &Icon_search_dirs_pixmaps))
     {
-        if (snprintf(icon_path, sizeof(icon_path), "%s/%s%s", dir_default_pixmaps, icon, icon_extensions[i]) < 0)
-            return false;
+        char **ptr_dir_ptr = NULL;
 
-        FILE *icon_file = fopen(icon_path, "rb");
-
-        if (icon_file)
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
         {
-            fclose(icon_file);
+            char *dir = *ptr_dir_ptr;
 
-            size_t icon_path_size = strlen(icon_path) + 1;
-            char *icon_path_final = malloc(icon_path_size);
-            if (!icon_path_final)
+            for (int i = 0; i < sizeof(icon_extensions) / sizeof(icon_extensions[0]); i++)
             {
-                fprintf(stderr, "fail allocating memory for icon path: %s\n", strerror(errno));
-                return false;
+                if (snprintf(icon_path, sizeof(icon_path), "%s/%s%s", dir, icon, icon_extensions[i]) < 0)
+                    return false;
+
+                FILE *icon_file = fopen(icon_path, "r");
+
+                if (icon_file)
+                {
+                    fclose(icon_file);
+
+                    size_t icon_path_size = strlen(icon_path) + 1;
+                    char *icon_path_final = malloc(icon_path_size);
+                    if (!icon_path_final)
+                    {
+                        fprintf(stderr, "fail allocating memory for icon path: %s\n", strerror(errno));
+                        return false;
+                    }
+                    memcpy(icon_path_final, icon_path, icon_path_size);
+
+                    *out_path = icon_path_final;
+
+                    return true;
+                }
             }
-            memcpy(icon_path_final, icon_path, icon_path_size);
-
-            *out_path = icon_path_final;
-
-            return true;
         }
+    }
+
+    // try open icon as file
+    FILE *icon_file = fopen(icon, "r");
+
+    if (icon_file)
+    {
+        fclose(icon_file);
+
+        size_t icon_path_size = strlen(icon) + 1;
+        char *icon_path_final = malloc(icon_path_size);
+        if (!icon_path_final)
+        {
+            fprintf(stderr, "fail allocating memory for icon path: %s\n", strerror(errno));
+            return false;
+        }
+        memcpy(icon_path_final, icon, icon_path_size);
+
+        *out_path = icon_path_final;
+
+        return true;
     }
 
     return false;

@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <dirent.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -37,10 +38,11 @@ static const char dir_default_pixmaps[] = "/usr/share/pixmaps";
 
 static const char desktop_type_prefix[] = "Type=";
 static const char desktop_icon_prefix[] = "Icon=";
+static const char desktop_startup_wm_class_prefix[] = "StartupWMClass=";
 
-static const char theme_type_prefix[]    = "Type=";
-static const char theme_size_prefix[]    = "Size=";
-static const char theme_scale_prefix[]   = "Scale=";
+static const char theme_type_prefix[] = "Type=";
+static const char theme_size_prefix[] = "Size=";
+static const char theme_scale_prefix[] = "Scale=";
 static const char theme_context_prefix[] = "Context=";
 
 static const char *icon_extensions[] =
@@ -395,7 +397,7 @@ static bool Icon_GetTypeAndIconByAppId(const char *app_id, char **type, char **i
                     if (!is_in_desktop_entry)
                         continue;
 
-                    if (Utility_IsStrStartsWith(line, desktop_type_prefix))
+                    if (Utility_IsStrStartsWith(line, desktop_type_prefix) && (line_len > sizeof(desktop_type_prefix) - 1))
                     {
                         if (!(*type = Utility_DupSubString(line, sizeof(desktop_type_prefix) - 1, SIZE_MAX)))
                         {
@@ -404,7 +406,7 @@ static bool Icon_GetTypeAndIconByAppId(const char *app_id, char **type, char **i
                         }
                     }
 
-                    if (Utility_IsStrStartsWith(line, desktop_icon_prefix))
+                    if (Utility_IsStrStartsWith(line, desktop_icon_prefix) && (line_len > sizeof(desktop_icon_prefix) - 1))
                     {
                         if (!(*icon = Utility_DupSubString(line, sizeof(desktop_icon_prefix) - 1, SIZE_MAX)))
                         {
@@ -446,12 +448,137 @@ static bool Icon_GetTypeAndIconByAppId(const char *app_id, char **type, char **i
                     return false;
                 }
 
+                desktop_file_found = true;
+
                 return true;
             }
         }
     }
 
-    return false;
+    // find by StartWMClass if not match above
+    if (Vector_IterInit(&iter, &Icon_search_dirs_applications))
+    {
+        char **ptr_dir_ptr = NULL;
+
+        while ((ptr_dir_ptr = Vector_IterNext(&iter)))
+        {
+            char *path_to_dir = *ptr_dir_ptr;
+
+            DIR *directory = opendir(path_to_dir);
+
+            if (!directory)
+                continue;
+
+            printf("looking up dir: %s\n", path_to_dir);
+
+            struct dirent *dir_entry;
+            while ((dir_entry = readdir(directory)))
+            {
+                if (!Utility_IsStrEndsWith(dir_entry->d_name, ".desktop"))
+                    continue;
+
+                printf("%s\n", dir_entry->d_name);
+
+                snprintf(path, sizeof(path), "%s/%s", path_to_dir, dir_entry->d_name);
+
+                FILE *desktop_file = fopen(path, "r");
+
+                if (!desktop_file)
+                    continue;
+
+                char *line = NULL;
+                size_t linesize = 0;
+                ssize_t bytes_read;
+                bool is_in_desktop_entry = false;
+                bool class_match = false;
+                bool has_malloc_error = false;
+
+                while ((bytes_read = getline(&line, &linesize, desktop_file)) != -1)
+                {
+                    size_t line_len = bytes_read;
+                    line[line_len - 1] = '\0';
+                    line_len--;
+
+                    if (Utility_IsStrStartsWith(line, "[") && Utility_IsStrEndsWith(line, "]"))
+                    {
+                        is_in_desktop_entry = !strcmp(line, "[Desktop Entry]");
+                        continue;
+                    }
+
+                    if (!is_in_desktop_entry)
+                        continue;
+
+                    if (Utility_IsStrStartsWith(line, desktop_startup_wm_class_prefix))
+                    {
+                        if (!strcmp(line + sizeof(desktop_startup_wm_class_prefix) - 1, app_id))
+                            class_match = true;
+                    }
+
+                    if (Utility_IsStrStartsWith(line, desktop_type_prefix) && (line_len > sizeof(desktop_type_prefix) - 1))
+                    {
+                        if (!(*type = Utility_DupSubString(line, sizeof(desktop_type_prefix) - 1, SIZE_MAX)))
+                        {
+                            has_malloc_error = true;
+                            break;
+                        }
+                    }
+
+                    if (Utility_IsStrStartsWith(line, desktop_icon_prefix) && (line_len > sizeof(desktop_icon_prefix) - 1))
+                    {
+                        if (!(*icon = Utility_DupSubString(line, sizeof(desktop_icon_prefix) - 1, SIZE_MAX)))
+                        {
+                            has_malloc_error = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (line)
+                    free(line);
+
+                if (ferror(desktop_file))
+                {
+                    fprintf(stderr, "fail reading file '%s': %s\n", path, strerror(errno));
+                    fclose(desktop_file);
+                    break;
+                }
+
+                // parse done, closing
+                fclose(desktop_file);
+
+                if (has_malloc_error || !class_match)
+                {
+                    if (*type)
+                    {
+                        free(*type);
+                        *type = NULL;
+                    }
+
+                    if (*icon)
+                    {
+                        free(*icon);
+                        *icon = NULL;
+                    }
+                }
+
+                if (has_malloc_error)
+                {
+                    fprintf(stderr, "fail to allocate memory for type/icon string: %s\n", strerror(errno));
+                    return false;
+                }
+
+                if (class_match)
+                {
+                    desktop_file_found = true;
+                    break;
+                }
+            }
+
+            closedir(directory);
+        }
+    }
+
+    return desktop_file_found;
 }
 
 static bool Icon_GetPathByTypeAndIconInThemeFolder(const char *dir, const char *theme, const char *type, const char *icon, int size, int scale, char **out_path)

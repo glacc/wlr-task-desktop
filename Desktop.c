@@ -588,9 +588,15 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                     SWRender_FillRectRounded(&render_buf_redraw, &(SWRenderBoundF){ icon_bounds.x1, icon_bounds.y1, icon_bounds.x2, icon_bounds.y2 }, 5.0f, (SWRenderColor){ 255, 255, 255, 63 });
 
                     // draw text
-                    SWRenderBuffer buf_icon_draw;
-                    if (SWRender_BufferCrop(&buf_icon_draw, &render_buf_redraw, &icon_bounds))
+                    SWRenderBuffer render_buf_icon_draw;
+                    if (SWRender_BufferCrop(&render_buf_icon_draw, &render_buf_redraw, &icon_bounds))
                     {
+                        // buf -> buf_redraw -> buf_icon_draw
+
+                        int offset_x = (icon_bounds.x1 < 0) ? icon_bounds.x1 : 0;
+                        int offset_y = (icon_bounds.y1 < 0) ? icon_bounds.y1 : 0;
+
+
                         FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SIZE));
                         global_ft_state.linespace_multiplier = 0.775F;
 
@@ -621,32 +627,49 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                         FTRenderWordWrap_RenderStrWithAlign(
                             &global_ft_state,
                             &global_ft_line_buffer,
-                            &buf_icon_draw,
+                            &render_buf_icon_draw,
+                        #if 0
+                            // TODO: use relative offset.
+                            // this introduces bug but i want to keep it a for while until finished
+                            // because it somehow funny looks like some unresponsive windows in Windows GDI era
                             &(SWRenderRectF){
                                 0,
                                 text_top_y,
                                 buf_icon_draw.w,
                                 buf_icon_draw.h - text_top_y
                             },
+                        #else
+                            &(SWRenderRectF){
+                                offset_x,
+                                text_top_y + offset_y,
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
+                                DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y - text_top_y
+                            },
+                        #endif
                             toplevel_handle->title,
                             0, -1,
                             (SWRenderColor){ 0, 0, 0, 255 }
                         );
-                            
 
-                        // icon size not same so commented out
-                        //SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &buf_icon_draw, (SWRenderVec2I){ (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2, 0 });
+                        SWRenderVec2I icon_draw_pos = 
+                        {
+                            offset_x + (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
+                            offset_y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
+                        };
+                        SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &render_buf_icon_draw, icon_draw_pos);
 
+                    #if 0
                         SWRenderRectI icon_dst_rect =
                         {
-                            (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
-                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING,
+                            offset_x + (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
+                            offset_y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING,
                             DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X,
                             DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y,
                         };
                         SWRenderBoundI icon_dst_bounds;
                         SWRender_RectToBoundInt(&icon_dst_bounds, &icon_dst_rect);
-                        SWRender_CopyBufferScaled(&toplevel_handle->desktop_entry.icon_buf, NULL, &buf_icon_draw, &icon_dst_bounds);
+                        SWRender_CopyBufferScaled(&toplevel_handle->desktop_entry.icon_buf, NULL, &render_buf_icon_draw, &icon_dst_bounds);
+                    #endif
                     }
                 }
             }

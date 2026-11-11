@@ -242,6 +242,7 @@ static bool Initialize(void)
     }
 
     // fd for app events
+    // TODO: use eventfd instead of pipe...
     if (pipe(local_event_pipefds) == -1)
     {
         fprintf(stderr, "failed to create pipe for local events: %s\n", strerror(errno));
@@ -468,11 +469,10 @@ bool DispatchAllEvents(void)
     // poll exception?
     if (poll_result < 0)
     {
+        wl_display_cancel_read(wl_display);
+        
         if (errno == EINTR)
-        {
-            wl_display_cancel_read(wl_display);
             return true;
-        }
         else
         {
             fprintf(stderr, "fail while polling fds: %s\n", strerror(errno));

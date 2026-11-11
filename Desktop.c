@@ -229,6 +229,7 @@ void Desktop_Destroy(struct Desktop *desktop)
         }
     }
     HashSet_Cleanup(&desktop->toplevel_handles);
+    
     Vector_Cleanup(&desktop->damage_bounds);
 
     DesktopLayerSurface_Cleanup(&desktop->desktop_layer_surface);

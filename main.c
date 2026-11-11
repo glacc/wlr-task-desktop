@@ -469,7 +469,10 @@ bool DispatchAllEvents(void)
     if (poll_result < 0)
     {
         if (errno == EINTR)
+        {
+            wl_display_cancel_read(wl_display);
             return true;
+        }
         else
         {
             fprintf(stderr, "fail while polling fds: %s\n", strerror(errno));

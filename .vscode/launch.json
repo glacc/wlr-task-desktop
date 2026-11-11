@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "Debug",
+            "name": "Debug (make-debug)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/wlr-task-desktop",
@@ -12,6 +12,36 @@
             "externalConsole": false,
             "MIMode": "gdb",
             "preLaunchTask": "make-debug",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Pass SIGINT to program",
+                    "text": "handle SIGINT nostop pass",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug (make-release)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/wlr-task-desktop",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "make-release",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",

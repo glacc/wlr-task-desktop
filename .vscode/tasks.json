@@ -15,7 +15,7 @@
         {
             "label": "make-release",
             "type": "shell",
-            "command": "cd \"${workspaceFolder}\" && make -B -j$(nproc)",
+            "command": "cd \"${workspaceFolder}\" && CFLAGS=\"-march=x86-64-v3 -fsanitize=address\" make -B -j$(nproc)",
             "group": "build",
             "presentation": {
                 "reveal": "always",

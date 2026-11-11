@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include <signal.h>
 #include <fcntl.h>
@@ -60,10 +61,6 @@
 #include "Test/DesktopLayerSurfaceTest.h"
 #endif
 
-#define ENV_HOME            "HOME"
-#define ENV_XDG_DATA_HOME   "XDG_DATA_HOME"
-#define ENV_XDG_DATA_DIRS   "XDG_DATA_DIRS"
-
 struct wl_display    *wl_display    = NULL;
 struct wl_registry   *wl_registry   = NULL;
 
@@ -94,11 +91,6 @@ static const char *fontpath = "sw-render/MiSans_Regular.ttf";
 
 volatile sig_atomic_t global_exit = false;
 
-void PrintEnv(const char *env_name)
-{
-    printf("env %s=%s\n", env_name, getenv(env_name));
-}
-
 #pragma region Wayland
 
 static inline void WlInterfaceVerMin(uint32_t *version, uint32_t supported)
@@ -126,30 +118,16 @@ static void WaylandRegistryListenerGlobal(
 
         // new object
         struct Desktop *desktop = Desktop_Create();
+        assert(desktop != NULL);
 
-        if (!desktop)
-        {
-            fprintf(stderr, "failed to allocate memory for Desktop\n");
-            return;
-        }
-
-        // for finding
+        // for looking up in hashset
         desktop->wl_name = name;
-
-        if (!HashSet_Add(&global_desktops, desktop, NULL))
-        {
-            Desktop_Destroy(desktop);
-            fprintf(stderr, "failed to append Desktop\n");
-            return;
-        }
+        HashSet_Add(&global_desktops, desktop, NULL);
 
         // for surface creation
-        if (!Vector_Add(&global_desktop_with_surface_creation_pending, &desktop))
-        {
-            Desktop_Destroy(desktop);
-            fprintf(stderr, "failed to request layer surface creation: %s\n", strerror(errno));
-            return;
-        }
+        Vector_Add(&global_desktop_with_surface_creation_pending, &desktop);
+
+        // send event
         const char dummy[1] = { };
         write(local_event_pipefds[1], dummy, 1);
 
@@ -226,91 +204,50 @@ const static struct wl_registry_listener wayland_registry_listener =
 
 #pragma endregion
 
-static bool Initialize(void)
+static void Initialize(void)
 {
     // wayland display and its fd
     if (!(wl_display = wl_display_connect(NULL)))
     {
         fprintf(stderr, "failed connecting to Wayland server: %s\n", strerror(errno));
-        return false;
+        exit(EXIT_FAILURE);
     }
-
-    if ((display_fd = wl_display_get_fd(wl_display)) < 0)
-    {
-        fprintf(stderr, "failed to get display fd: %s\n", strerror(errno));
-        return false;
-    }
+    display_fd = wl_display_get_fd(wl_display);
 
     // fd for app events
-    // TODO: use eventfd instead of pipe...
     if (pipe(local_event_pipefds) == -1)
     {
         fprintf(stderr, "failed to create pipe for local events: %s\n", strerror(errno));
-        return false;
+        exit(EXIT_FAILURE);
     }
-    fcntl(
-        local_event_pipefds[0],
-        F_SETFL,
-        fcntl(local_event_pipefds[0], F_GETFL) | O_NONBLOCK
-    );
+    fcntl(local_event_pipefds[0], F_SETFL, fcntl(local_event_pipefds[0], F_GETFL) | O_NONBLOCK);
 
     // wayland registry
-    if (!(wl_registry = wl_display_get_registry(wl_display)))
-    {
-        fprintf(stderr, "failed to get registry from display: %s\n", strerror(errno));
-        return false;
-    }
+    wl_registry = wl_display_get_registry(wl_display);
 
     // TODO: keyboard
-    //if (!Keyboard_Init(&keyboard))
-    //{ ...
-
-    if (!Pointer_Init(&global_pointer))
-    {
-        fprintf(stderr, "failed to init struct Pointer: %s\n", strerror(errno));
-        return false;
-    }
+    //Keyboard_Init(&keyboard);
+    Pointer_Init(&global_pointer);
 
     // hashset for desktops
-    if (!HashSet_Init(&global_desktops))
-    {
-        fprintf(stderr, "failed to init HashSet for struct Output: %s\n", strerror(errno));
-        return false;
-    }
+    HashSet_Init(&global_desktops);
     global_desktops.Hash    = Desktop_Hash;
     global_desktops.IsEqual = Desktop_IsEqual;
 
     // hashset for toplevel handles
-    if (!HashSet_Init(&global_toplevel_handles))
-    {
-        fprintf(stderr, "failed to init HashSet for struct ToplevelHandle: %s\n", strerror(errno));
-        return false;
-    }
+    HashSet_Init(&global_toplevel_handles);
 
-    if (!Vector_Init(&global_toplevel_handle_to_destroy, sizeof(struct ToplevelHandle *)))
-    {
-        fprintf(stderr, "failed to init HashSet for toplevel handle cleanup: %s\n", strerror(errno));
-        return false;
-    }
+    Vector_Init(&global_toplevel_handle_to_destroy, sizeof(struct ToplevelHandle *));
 
     // vector for desktop surface creation
-    if (!Vector_Init(&global_desktop_with_surface_creation_pending, sizeof(struct Desktop *)))
-    {
-        fprintf(stderr, "failed to init Vector for desktop surface creation: %s\n", strerror(errno));
-        return false;
-    }
+    Vector_Init(&global_desktop_with_surface_creation_pending, sizeof(struct Desktop *));
 
     if (!FTEssentials_InitState(&global_ft_state, fontpath))
     {
         fprintf(stderr, "failed to init FreeType: %s\n", strerror(errno));
-        return false;
+        exit(EXIT_FAILURE);
     }
-
-    if (!FTWordWrapLineBuffer_Init(&global_ft_line_buffer))
-    {
-        fprintf(stderr, "failed to init line buffer for FTRender: %s\n", strerror(errno));
-        return false;
-    }
+    FTWordWrapLineBuffer_Init(&global_ft_line_buffer);
 
     // bind registries
     wl_registry_add_listener(wl_registry, &wayland_registry_listener, NULL);
@@ -320,8 +257,6 @@ static bool Initialize(void)
     wl_display_roundtrip(wl_display);
     wl_display_roundtrip(wl_display);
     wl_display_roundtrip(wl_display);
-
-    return true;
 }
 
 static void Cleanup(void)
@@ -470,7 +405,7 @@ bool DispatchAllEvents(void)
     if (poll_result < 0)
     {
         wl_display_cancel_read(wl_display);
-        
+
         if (errno == EINTR)
             return true;
         else
@@ -509,7 +444,6 @@ bool DispatchAllEvents(void)
     }
 
     // --------------------------------- any ----------------------------------
-    struct HashSet_Iter iter_hashset = { };
 
     // desktop update
     ProcessDesktopUpdate();
@@ -524,7 +458,7 @@ bool DispatchAllEvents(void)
     return true;
 }
 
-static const char sigint_str[] = "SIGINT caught\n";
+static const char sigint_str[] = "\nSIGINT caught\n";
 
 static void SIGINTHandler(int signal)
 {
@@ -536,27 +470,14 @@ int main(int argc, char *argv[])
 {
     int ret = 0;
 
-    if (signal(SIGINT, SIGINTHandler) == SIG_ERR)
-        fprintf(stderr, "failed to set signal handler: %s\n", strerror(errno));
+    signal(SIGINT, SIGINTHandler);
 
-    PrintEnv(ENV_HOME);
-    PrintEnv(ENV_XDG_DATA_HOME);
-    PrintEnv(ENV_XDG_DATA_DIRS);
-
-    bool init_success = true;
-    init_success = init_success && Icon_Init();
-    init_success = init_success && Initialize();
-    if (!init_success)
-    {
-        ret = EXIT_FAILURE;
-        goto End;
-    }
+    Icon_Init();
+    Initialize();
 
     while (DispatchAllEvents() && !global_exit);
-
     puts("stopping...");
 
-End:
     Cleanup();
     Icon_Cleanup();
 

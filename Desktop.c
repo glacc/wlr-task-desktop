@@ -36,6 +36,8 @@
 #include "SWRender/FTEssentials.h"
 #include "SWRender/FTRenderWordWrap.h"
 
+int Desktop_debug_verbosity = 1;
+
 #pragma region WaylandListener
 
 static void Desktop_OutputGeometry(
@@ -58,6 +60,9 @@ static void Desktop_OutputGeometry(
     desktop->phy_w = physical_width;
     desktop->phy_h = physical_height;
 
+    if (Desktop_debug_verbosity < 1)
+        return;
+
     printf(
         "geometry %s %s: %dx%d at (%d, %d)\n",
         make, model, physical_width, physical_height, x, y
@@ -78,6 +83,9 @@ static void Desktop_OutputMode(
     desktop->w = width;
     desktop->h = height;
 
+    if (Desktop_debug_verbosity < 1)
+        return;
+
     printf("\tmode: %dx%d@%d.%03dHz\n", width, height, refresh / 1000, refresh % 1000);
 }
 
@@ -92,6 +100,9 @@ static void Desktop_OutputDone(
 
     if (!desktop->scale)
         desktop->scale = 1;
+
+    if (Desktop_debug_verbosity < 1)
+        return;
 
     printf("\twl_name: %u\n", desktop->wl_name);
 
@@ -108,6 +119,9 @@ static void Desktop_OutputScale(
 
     desktop->scale = factor;
 
+    if (Desktop_debug_verbosity < 1)
+        return;
+
     printf("\tscale: %d\n", factor);
 }
 
@@ -118,8 +132,10 @@ static void Desktop_OutputName(
 )
 {
     struct Desktop *desktop = data;
-
     Utility_TryReplaceWithAnotherString(&desktop->name, name);
+
+    if (Desktop_debug_verbosity < 1)
+        return;
 
     printf("\tname: %s\n", name);
 }
@@ -133,6 +149,9 @@ static void Desktop_OutputDescription(
     struct Desktop *desktop = data;
 
     Utility_TryReplaceWithAnotherString(&desktop->description, description);
+
+    if (Desktop_debug_verbosity < 1)
+        return;
 
     printf("\tdescription: %s\n", description);
 }
@@ -168,26 +187,8 @@ struct Desktop *Desktop_Create(void)
 
     desktop->damaged = false;
 
-    if (!desktop)
-    {
-        fprintf(stderr, "failed to allocate memory for struct Output: %s\n", strerror(errno));
-        return NULL;
-    }
-
-    if (!HashSet_Init(&desktop->toplevel_handles))
-    {
-        fprintf(stderr, "failed to initialize struct HashSet for struct Output: %s\n", strerror(errno));
-        free(desktop);
-        return NULL;
-    }
-
-    // init damage rects vector
-    if (!Vector_Init(&desktop->damage_bounds, sizeof(SWRenderBoundI)))
-    {
-        HashSet_Cleanup(&desktop->toplevel_handles);
-        free(desktop);
-        return NULL;
-    }
+    HashSet_Init(&desktop->toplevel_handles);
+    Vector_Init(&desktop->damage_rect_bounds, sizeof(SWRenderBoundI));
 
     return desktop;
 }
@@ -230,7 +231,7 @@ void Desktop_Destroy(struct Desktop *desktop)
     }
     HashSet_Cleanup(&desktop->toplevel_handles);
     
-    Vector_Cleanup(&desktop->damage_bounds);
+    Vector_Cleanup(&desktop->damage_rect_bounds);
 
     DesktopLayerSurface_Cleanup(&desktop->desktop_layer_surface);
 
@@ -352,10 +353,10 @@ void Desktop_Update(struct Desktop *desktop)
             {
                 Desktop_AddDamage(
                     desktop,
-                    arrangement->x,
-                    arrangement->y,
-                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
-                    DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y
+                    rect_this_icon.x,
+                    rect_this_icon.y,
+                    rect_this_icon.w,
+                    rect_this_icon.h
                 );
 
             #if DEBUG_DAMAGE == 1
@@ -424,10 +425,12 @@ void Desktop_Update(struct Desktop *desktop)
                     if (!has_overlap)
                         break;
 
+                    // go right
                     new_pos_x += DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X + 1;
                     if (new_pos_x + (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X + 1) >= desktop->w)
                     {
-                        new_pos_x = 0;
+                        // go left and go up
+                        new_pos_x = 1;
                         new_pos_y -= DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y + 1;
                     }
                     
@@ -437,10 +440,11 @@ void Desktop_Update(struct Desktop *desktop)
                     SWRender_RectToBoundInt(&bounds_this_icon, &rect_this_icon);
                 }
 
+                // update position
                 arrangement->x = new_pos_x;
                 arrangement->y = new_pos_y;
 
-                // redraw new position
+                // and redraw at new position
                 if (arrangement->visible)
                 {
                     Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y);
@@ -457,17 +461,7 @@ void Desktop_Update(struct Desktop *desktop)
 
             if (arrangement->visible && arrangement->has_position)
             {
-                // input region
-                if (input_region)
-                    {
-                    wl_region_add(
-                        input_region,
-                        rect_this_icon.x,
-                        rect_this_icon.y,
-                        rect_this_icon.w,
-                        rect_this_icon.h
-                    );
-                }
+                wl_region_add(input_region, rect_this_icon.x, rect_this_icon.y, rect_this_icon.w, rect_this_icon.h);
 
                 if ((lmb_state->pressed || mmb_state->pressed) && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
                 {
@@ -488,10 +482,9 @@ void Desktop_Update(struct Desktop *desktop)
         desktop->debug_key_pressed = true;
 #endif
 
-    // input region
+    // add input region
     wl_surface_set_input_region(desktop->desktop_layer_surface.double_buffered_surface.surface, input_region);
-    if (input_region)
-        wl_region_destroy(input_region);
+    wl_region_destroy(input_region);
 
     PointerState_PostDispatch(pointer_state);
 }
@@ -507,7 +500,7 @@ bool Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w,
     SWRenderBoundI bounds;
     SWRender_RectToBoundInt(&bounds, &(SWRenderRectI){ x, y, w, h });
 
-    return Vector_Add(&desktop->damage_bounds, &bounds);
+    return Vector_Add(&desktop->damage_rect_bounds, &bounds);
 }
 
 void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
@@ -520,7 +513,7 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
 
     struct Vector_Iter iter_damage_bounds = { };
 
-    if (desktop->damage_bounds.count > 0 && Vector_IterInit(&iter_damage_bounds, &desktop->damage_bounds))
+    if (desktop->damage_rect_bounds.count > 0 && Vector_IterInit(&iter_damage_bounds, &desktop->damage_rect_bounds))
     {
         desktop->damaged = true;
 
@@ -549,9 +542,7 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
             printf("damage bounds (%d, %d) - (%d, %d)\n", damage_bounds->x1, damage_bounds->y1, damage_bounds->x2, damage_bounds->y2);
         #endif
         }
-        Vector_Clear(&desktop->damage_bounds);
-
-        // TODO: do more valid check here?
+        Vector_Clear(&desktop->damage_rect_bounds);
 
         // negative x1/y1 bound causes visual artifacts so limit it to buffer bounds
         SWRenderBoundI buffer_bounds;
@@ -573,7 +564,7 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
             // background
             SWRender_FillRect(&render_buf_redraw, &redraw_local_bounds, (SWRenderColor){ 0, 0, 0, 0 }, true);
             
-            // icons
+            // try redraw each icons
             struct HashSet_Iter iter_toplevel_handles = { };
             
             if (HashSet_IterInit(&iter_toplevel_handles, &desktop->toplevel_handles))
@@ -596,7 +587,7 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                     SWRenderBoundI icon_bounds;
                     SWRender_RectToBoundInt(&icon_bounds, &icon_rect);
 
-                    // skip if not inside region
+                    // skip if not inside redraw region
                     if (!SWRender_GetIntersectionBetweenBoundInt(&redraw_local_bounds, &icon_bounds, NULL))
                         continue;
 
@@ -605,7 +596,6 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                 #endif
 
                     // draw icon background
-                    //SWRender_FillRect(&render_buf_redraw, &icon_bounds, (SWRenderColor){ 255, 255, 255, 63 }, false);
                     SWRender_FillRectRounded(&render_buf_redraw, &(SWRenderBoundF){ icon_bounds.x1, icon_bounds.y1, icon_bounds.x2, icon_bounds.y2 }, 5.0f, (SWRenderColor){ 255, 255, 255, 63 });
 
                     // draw text
@@ -613,10 +603,10 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                     if (SWRender_BufferCrop(&render_buf_icon_draw, &render_buf_redraw, &icon_bounds))
                     {
                         // buf -> buf_redraw -> buf_icon_draw
-
                         int offset_x = (icon_bounds.x1 < 0) ? icon_bounds.x1 : 0;
                         int offset_y = (icon_bounds.y1 < 0) ? icon_bounds.y1 : 0;
 
+                        bool selected = (desktop->selected_handle == toplevel_handle);
 
                         FTEssentials_SetSize96DPI(&global_ft_state, FLOAT_TO_F26DOT6(DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SIZE));
                         global_ft_state.linespace_multiplier = 0.775F;
@@ -678,19 +668,6 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
                             offset_y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
                         };
                         SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &render_buf_icon_draw, icon_draw_pos);
-
-                    #if 0
-                        SWRenderRectI icon_dst_rect =
-                        {
-                            offset_x + (DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
-                            offset_y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING,
-                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X,
-                            DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y,
-                        };
-                        SWRenderBoundI icon_dst_bounds;
-                        SWRender_RectToBoundInt(&icon_dst_bounds, &icon_dst_rect);
-                        SWRender_CopyBufferScaled(&toplevel_handle->desktop_entry.icon_buf, NULL, &render_buf_icon_draw, &icon_dst_bounds);
-                    #endif
                     }
                 }
             }

@@ -25,12 +25,17 @@
 
 #include "Globals.h"
 
+int DesktopLayerSurface_debug_verbosity = 1;
+
 static void DesktopLayerSurface_Surface_Enter(
     void *data,
     struct wl_surface *wl_surface,
     struct wl_output *output
 )
 {
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
+
     puts("surface entered output");
 }
 
@@ -40,6 +45,9 @@ static void DesktopLayerSurface_Surface_Leave(
     struct wl_output *output
 )
 {
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
+
     puts("surface leaved output");
 }
 
@@ -50,6 +58,9 @@ static void DesktopLayerSurface_Surface_PreferredBufferScale
     int32_t factor
 )
 {
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
+
     printf("surface preferred buf scale: %d\n", factor);
 }
 
@@ -60,6 +71,9 @@ static void DesktopLayerSurface_Surface_PreferredBufferTransform
     uint32_t transform
 )
 {
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
+
     printf("surface preferred buf transform: %u\n", transform);
 }
 
@@ -86,6 +100,9 @@ static void DesktopLayerSurface_Configure(
     DoubleBufferedSurface_SetSize(&layer_surface->double_buffered_surface, width, height);
     wp_viewport_set_destination(layer_surface->viewport, layer_surface->w, layer_surface->h);
 
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
+
     printf(
         "layer surface configure:\n"
         "\tserial: %u\n"
@@ -102,6 +119,9 @@ static void DesktopLayerSurface_Closed(
     struct DesktopLayerSurface *layer_surface = data;
 
     layer_surface->closed = true;
+
+    if (DesktopLayerSurface_debug_verbosity < 1)
+        return;
 
     puts("layer surface closed");
 }

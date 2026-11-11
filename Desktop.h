@@ -48,7 +48,7 @@ struct Desktop
 
     // surface
     struct DesktopLayerSurface desktop_layer_surface;
-    struct Vector damage_bounds; // typeof(SWRenderBoundI)
+    struct Vector damage_rect_bounds; // typeof(SWRenderBoundI)
     bool damaged;
 
     // toplevel handle

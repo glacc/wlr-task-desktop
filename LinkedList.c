@@ -396,7 +396,10 @@ struct LinkedList_Node *LinkedList_IndexFromTail(struct LinkedList *list, size_t
 
 bool LinkedList_DetachNode(struct LinkedList_Node *node)
 {
-    if (!node || !node->list)
+    if (!node)
+        return false;
+
+    if (!node->list)
         return false;
 
     struct LinkedList *list = node->list;
@@ -406,15 +409,27 @@ bool LinkedList_DetachNode(struct LinkedList_Node *node)
     {
         list->head = node->next;
 
+        // if only 1 element
         if (list->head == NULL)
             list->tail = NULL;
+        else
+        {
+            list->head = node->next;
+            node->next->prev = NULL;
+        }
     }
     else if (node == list->tail)
     {
         list->tail = node->prev;
         
+        // if only 1 element
         if (list->tail == NULL)
             list->head = NULL;
+        else
+        {
+            list->tail = node->prev;
+            node->prev->next = NULL;
+        }
     }
     else
     {

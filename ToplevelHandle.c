@@ -461,18 +461,21 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
 
         while ((desktop = HashSet_IterDel(&iter)))
         {
-            // TODO: redraw to remove icon of closed application
-
-            LinkedList_DelElemFromTail(&desktop->toplevel_handles, toplevel_handle);
-
             if (desktop->selected_handle == toplevel_handle)
                 desktop->selected_handle = NULL;
+
+            struct LinkedList_Node *node = LinkedList_FindNodeFromTail(&desktop->toplevel_handles, toplevel_handle);
+            
+            if (desktop->toplevel_handle_to_send_front == node)
+                desktop->toplevel_handle_to_send_front = NULL;
+
+            LinkedList_DestroyNode(node);
         }
     }
     HashSet_Cleanup(&toplevel_handle->is_inside_desktops);
 
-    //// unref this from toplevel manager
-    //HashSet_Del(&global_toplevel_handles, toplevel_handle);
+    // unref this from toplevel manager
+    HashSet_Del(&global_toplevel_handles, toplevel_handle);
 
     // destroy zwlr handle
     if (toplevel_handle->toplevel_handle)

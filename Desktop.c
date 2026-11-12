@@ -533,6 +533,8 @@ void Desktop_Update(struct Desktop *desktop)
     {
         LinkedList_DetachNode(desktop->toplevel_handle_to_send_front);
         LinkedList_InsertNodeTail(&desktop->toplevel_handles, desktop->toplevel_handle_to_send_front);
+
+        desktop->toplevel_handle_to_send_front = NULL;
     }
 
     // add input region

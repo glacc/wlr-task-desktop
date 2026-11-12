@@ -484,7 +484,7 @@ void Desktop_Update(struct Desktop *desktop)
                 {
                     Desktop_AddDamage(desktop, arrangement->x, arrangement->y, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X, DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y);
 
-                    printf("redraw request '%s' on (%d, %d)\n", toplevel_handle->title ? toplevel_handle->title : "NULL", arrangement->x, arrangement->y);
+                    // printf("redraw request '%s' on (%d, %d)\n", toplevel_handle->title ? toplevel_handle->title : "NULL", arrangement->x, arrangement->y);
                 }
 
                 arrangement->redraw = false;

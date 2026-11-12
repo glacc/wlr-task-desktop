@@ -548,7 +548,7 @@ static bool Icon_GetTypeAndIconByAppId(const char *app_id, char **type, char **i
                 if (!Utility_IsStrEndsWith(dir_entry->d_name, ".desktop"))
                     continue;
 
-                printf("%s\n", dir_entry->d_name);
+                // printf("%s\n", dir_entry->d_name);
 
                 snprintf(path, sizeof(path), "%s/%s", path_to_dir, dir_entry->d_name);
 

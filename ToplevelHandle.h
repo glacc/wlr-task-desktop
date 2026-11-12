@@ -46,6 +46,7 @@ struct ToplevelHandle_DesktopEntry
     bool has_position;
 
     // reserved for future use?
+    // TODO: use this to display full title when selected?
     int w, h;
 
     // usually hides when not minimized, no effect in stable mode

@@ -187,7 +187,6 @@ struct Desktop *Desktop_Create(void)
 
     desktop->damaged = false;
 
-    HashSet_Init(&desktop->toplevel_handles);
     Vector_Init(&desktop->damage_rect_bounds, sizeof(SWRenderBoundI));
 
     return desktop;
@@ -204,15 +203,17 @@ void Desktop_Destroy(struct Desktop *desktop)
     if (desktop->description)
         free(desktop->description);
 
-    struct HashSet_Iter iter = { };
+    struct LinkedList_Iter iter = { };
 
     // unref ToplevelHandles
-    if (HashSet_IterInit(&iter, &desktop->toplevel_handles))
+    if (LinkedList_IterInit(&iter, &desktop->toplevel_handles))
     {
-        struct ToplevelHandle *toplevel_handle = NULL;
+        struct LinkedList_Node *toplevel_handle_node = NULL;
 
-        while ((toplevel_handle = HashSet_IterDel(&iter)))
+        while ((toplevel_handle_node = LinkedList_IterDel(&iter)))
         {
+            struct ToplevelHandle *toplevel_handle = toplevel_handle_node->elem;
+
             HashSet_Del(&toplevel_handle->is_inside_desktops, desktop);
 
             // TODO: guessing main display by earilest name value?
@@ -227,9 +228,10 @@ void Desktop_Destroy(struct Desktop *desktop)
                 else
                     toplevel_handle->iconify_to_desktop = NULL;
             }
+
+            LinkedList_DestroyNode(toplevel_handle_node);
         }
     }
-    HashSet_Cleanup(&desktop->toplevel_handles);
     
     Vector_Cleanup(&desktop->damage_rect_bounds);
 
@@ -253,6 +255,15 @@ void Desktop_Update(struct Desktop *desktop)
     struct PointerBtnState *mmb_state = Pointer_GetBtnState(pointer_state, 274);
 
     struct wl_region *input_region = wl_compositor_create_region(wl_compositor);
+
+    if (global_pointer.wp_cursor_shape_device && pointer_state->pointer_inside)
+    {
+        wp_cursor_shape_device_v1_set_shape(
+            global_pointer.wp_cursor_shape_device,
+            desktop->desktop_layer_surface.double_buffered_surface.pointer_enter_serial,
+            WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT
+        );
+    }
 
     // update selected icon state
     if (desktop->selected_handle && desktop->selected_handle->desktop_entry.visible)
@@ -329,14 +340,19 @@ void Desktop_Update(struct Desktop *desktop)
     bool pressed_on_icon = false;
 
     // lookup each toplevel handle
-    struct HashSet_Iter iter = { };
+    struct LinkedList_Iter iter = { };
 
-    if (HashSet_IterInit(&iter, &desktop->toplevel_handles))
+    if (LinkedList_IterInit(&iter, &desktop->toplevel_handles))
     {
-        struct ToplevelHandle *toplevel_handle = NULL;
+        struct LinkedList_Node *toplevel_handle_node = NULL;
 
-        while ((toplevel_handle = HashSet_IterNext(&iter)))
+        while ((toplevel_handle_node = LinkedList_IterNext(&iter)))
         {
+            struct ToplevelHandle *toplevel_handle = toplevel_handle_node->elem;
+
+            if (toplevel_handle->iconify_to_desktop != desktop)
+                continue;
+
             struct ToplevelHandle_DesktopEntry *arrangement =
                 &toplevel_handle->desktop_entry;
 
@@ -347,6 +363,23 @@ void Desktop_Update(struct Desktop *desktop)
                 DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_X,
                 DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ENTRY_SIZE_Y,
             };
+
+        #if 0
+            if (arrangement->visible && arrangement->has_position)
+            {
+                wl_region_add(input_region, rect_this_icon.x, rect_this_icon.y, rect_this_icon.w, rect_this_icon.h);
+
+                if ((lmb_state->pressed || mmb_state->pressed) && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
+                {
+                    pressed_on_icon = true;
+
+                    desktop->selected_handle = toplevel_handle;
+                    desktop->toplevel_handle_to_send_front = toplevel_handle_node;
+
+                    arrangement->redraw = true;
+                }
+            }
+        #endif
 
             // redraw original position
             if (arrangement->redraw && arrangement->has_position)
@@ -385,14 +418,16 @@ void Desktop_Update(struct Desktop *desktop)
                     bool has_overlap = false;
 
                     // check overlap
-                    struct HashSet_Iter iter_overlap_check = { };
+                    struct LinkedList_Iter iter_overlap_check = { };
 
-                    if (HashSet_IterInit(&iter_overlap_check, &desktop->toplevel_handles))
+                    if (LinkedList_IterInit(&iter_overlap_check, &desktop->toplevel_handles))
                     {
-                        struct ToplevelHandle *toplevel_handle_overlap_chk = NULL;
+                        struct LinkedList_Node *toplevel_handle_overlap_chk_node = NULL;
 
-                        while ((toplevel_handle_overlap_chk = HashSet_IterNext(&iter_overlap_check)))
+                        while ((toplevel_handle_overlap_chk_node = LinkedList_IterNext(&iter_overlap_check)))
                         {
+                            struct ToplevelHandle *toplevel_handle_overlap_chk = toplevel_handle_overlap_chk_node->elem;
+
                             // dont check self.
                             if (toplevel_handle_overlap_chk == toplevel_handle)
                                 continue;
@@ -459,6 +494,7 @@ void Desktop_Update(struct Desktop *desktop)
                 arrangement->has_position = true;
             }
 
+        #if 1
             if (arrangement->visible && arrangement->has_position)
             {
                 wl_region_add(input_region, rect_this_icon.x, rect_this_icon.y, rect_this_icon.w, rect_this_icon.h);
@@ -466,9 +502,20 @@ void Desktop_Update(struct Desktop *desktop)
                 if ((lmb_state->pressed || mmb_state->pressed) && SWRender_IsVec2IInsideRectI((SWRenderVec2I){ pointer_state->x_int, pointer_state->y_int }, &rect_this_icon))
                 {
                     pressed_on_icon = true;
+
                     desktop->selected_handle = toplevel_handle;
+                    desktop->toplevel_handle_to_send_front = toplevel_handle_node;
+
+                    Desktop_AddDamage(
+                        desktop,
+                        rect_this_icon.x,
+                        rect_this_icon.y,
+                        rect_this_icon.w,
+                        rect_this_icon.h
+                    );
                 }
             }
+        #endif
         }
     }
 
@@ -481,6 +528,12 @@ void Desktop_Update(struct Desktop *desktop)
     if (rmb_state->pressed)
         desktop->debug_key_pressed = true;
 #endif
+
+    if (desktop->toplevel_handle_to_send_front)
+    {
+        LinkedList_DetachNode(desktop->toplevel_handle_to_send_front);
+        LinkedList_InsertNodeTail(&desktop->toplevel_handles, desktop->toplevel_handle_to_send_front);
+    }
 
     // add input region
     wl_surface_set_input_region(desktop->desktop_layer_surface.double_buffered_surface.surface, input_region);
@@ -565,14 +618,16 @@ void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop)
             SWRender_FillRect(&render_buf_redraw, &redraw_local_bounds, (SWRenderColor){ 0, 0, 0, 0 }, true);
             
             // try redraw each icons
-            struct HashSet_Iter iter_toplevel_handles = { };
+            struct LinkedList_Iter iter_toplevel_handles = { };
             
-            if (HashSet_IterInit(&iter_toplevel_handles, &desktop->toplevel_handles))
+            if (LinkedList_IterInit(&iter_toplevel_handles, &desktop->toplevel_handles))
             {
-                struct ToplevelHandle *toplevel_handle = NULL;
+                struct LinkedList_Node *toplevel_handle_node = NULL;
                 
-                while ((toplevel_handle = HashSet_IterNext(&iter_toplevel_handles)))
+                while ((toplevel_handle_node = LinkedList_IterNext(&iter_toplevel_handles)))
                 {
+                    struct ToplevelHandle *toplevel_handle = toplevel_handle_node->elem;
+
                     if (!(toplevel_handle->desktop_entry.visible && toplevel_handle->desktop_entry.has_position))
                         continue;
                     

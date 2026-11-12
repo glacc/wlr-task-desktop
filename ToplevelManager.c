@@ -50,7 +50,7 @@ static void ToplevelManagerListener_Toplevel(
         ToplevelHandle_Destroy(toplevel_handle);
         return;
     }
-
+    
     toplevel_handle->toplevel_handle = zwlr_toplevel_handle;
 
     zwlr_foreign_toplevel_handle_v1_add_listener(toplevel_handle->toplevel_handle, &ToplevelHandle_listener, toplevel_handle);

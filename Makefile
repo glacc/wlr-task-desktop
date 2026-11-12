@@ -26,6 +26,8 @@ WL_PROTOCOL_SCAN_OUTPUT_DIR=protocol
 WL_PROTOCOL_DIR!=$(PKG_CONFIG) --variable=pkgdatadir wayland-protocols
 WL_PROTOCOL_XDG_SHELL=$(WL_PROTOCOL_DIR)/stable/xdg-shell/xdg-shell.xml
 WL_PROTOCOL_VIEWPORTER=$(WL_PROTOCOL_DIR)/stable/viewporter/viewporter.xml
+WL_PROTOCOL_CURSOR_SHAPE=$(WL_PROTOCOL_DIR)/staging/cursor-shape/cursor-shape-v1.xml
+WL_PROTOCOL_TABLET_V2=$(WL_PROTOCOL_DIR)/unstable/tablet/tablet-unstable-v2.xml
 
 WLR_PROTOCOL_DIR!=$(PKG_CONFIG) --variable=pkgdatadir wlr-protocols
 WLR_PROTOCOL_FOREIGN_TOPLEVEL_MANAGEMENT=$(WLR_PROTOCOL_DIR)/unstable/wlr-foreign-toplevel-management-unstable-v1.xml
@@ -34,6 +36,8 @@ WLR_PROTOCOL_LAYER_SHELL=$(WLR_PROTOCOL_DIR)/unstable/wlr-layer-shell-unstable-v
 WL_PROTOCOLS=\
 	$(WL_PROTOCOL_XDG_SHELL)\
 	$(WL_PROTOCOL_VIEWPORTER)\
+	$(WL_PROTOCOL_CURSOR_SHAPE)\
+	$(WL_PROTOCOL_TABLET_V2)\
 	$(WLR_PROTOCOL_LAYER_SHELL)\
 	$(WLR_PROTOCOL_FOREIGN_TOPLEVEL_MANAGEMENT)
 

@@ -1,20 +1,20 @@
 /*
     Copyright (C) 2026 Glacc
 
-    This file is part of wlr-task-desktop.
+    This file is part of gla-rwm.
 
-    wlr-task-desktop is free software: you can redistribute it
+    gla-rwm is free software: you can redistribute it
     and/or modify it under the terms of the GNU General Public
     License as published by the Free Software Foundation, either
     version 3 of the License, or (at your option) any later version.
 
-    wlr-task-desktop is distributed in the hope that it will be
+    gla-rwm is distributed in the hope that it will be
     useful, but WITHOUT ANY WARRANTY; without even the implied
     warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
     See the GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public
-    License along with wlr-task-desktop. If not,
+    License along with gla-rwm. If not,
     see <https://www.gnu.org/licenses/>. 
 */
 
@@ -23,13 +23,9 @@
 #include <stddef.h>
 #include <malloc.h>
 #include <memory.h>
+#include <stdlib.h>
 
 int Vector_default_init_size = 8;
-
-void Vector_Zero(struct Vector *vector)
-{
-    memset(vector, 0, sizeof(struct Vector));
-}
 
 bool Vector_Init(struct Vector *vector, int element_size)
 {
@@ -63,34 +59,34 @@ bool Vector_Resize(struct Vector *vector, int new_size)
         return false;
 
     vector->array = newArrayPtr;
-
     vector->size = new_size;
 
     return true;
 }
 
-bool Vector_Add(struct Vector *vector, void *elem)
+void *Vector_Add(struct Vector *vector, void *elem)
 {
     if (vector->count == vector->size)
     {
         if (!Vector_Resize(vector, vector->size * 2))
-            return false;
+            return NULL;
     }
 
     int offset = vector->count * vector->element_size;
-    memcpy((int8_t *)vector->array + offset, elem, vector->element_size);
+    int8_t *dst = (int8_t *)vector->array + offset;
+    memcpy(dst, elem, vector->element_size);
 
     vector->count++;
 
-    return true;
+    return dst;
 }
 
-bool Vector_InsertBefore(struct Vector *vector, int index, void *elem)
+void *Vector_InsertBefore(struct Vector *vector, int index, void *elem)
 {
     if (vector->count == vector->size)
     {
         if (!Vector_Resize(vector, vector->size * 2))
-            return false;
+            return NULL;
     }
 
     int8_t *ptr_curr_element = (int8_t *)vector->array + vector->count * vector->element_size;
@@ -108,7 +104,7 @@ bool Vector_InsertBefore(struct Vector *vector, int index, void *elem)
 
     vector->count++;
 
-    return true;
+    return ptr_curr_element;
 }
 
 void Vector_RemoveAt(struct Vector *vector, int index)

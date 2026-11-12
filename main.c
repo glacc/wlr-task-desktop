@@ -35,6 +35,7 @@
 
 #include <wayland-client.h>
 #include "viewporter-client-protocol.h"
+#include "cursor-shape-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 
@@ -65,6 +66,7 @@ struct wl_display    *wl_display    = NULL;
 struct wl_registry   *wl_registry   = NULL;
 
 struct wl_seat       *wl_seat       = NULL;
+struct wp_cursor_shape_manager_v1 *wp_cursor_shape_manager = NULL;
 
 struct wl_compositor *wl_compositor = NULL;
 struct wl_shm        *wl_shm        = NULL;
@@ -76,6 +78,7 @@ struct zwlr_foreign_toplevel_manager_v1 *zwlr_toplevel_manager = NULL;
 struct Keyboard global_keyboard = { };
 struct Pointer  global_pointer  = { };
 
+// TODO: use LinkedList to enable z-ordering?
 struct HashSet global_desktops                              = { };
 struct Vector  global_desktop_with_surface_creation_pending = { };
 
@@ -149,6 +152,13 @@ static void WaylandRegistryListenerGlobal(
 
         wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, version_to_bind);
         wl_seat_add_listener(wl_seat, &Seat_listener, NULL);
+    }
+    else if (!strcmp(interface, wp_cursor_shape_manager_v1_interface.name))
+    {
+        // wp_cursor_shape_manager
+        WlInterfaceVerMin(&version_to_bind, 1);
+
+        wp_cursor_shape_manager = wl_registry_bind(registry, name, &wp_cursor_shape_manager_v1_interface, version_to_bind);
     }
     else if (!strcmp(interface, wl_shm_interface.name))
     {
@@ -235,9 +245,7 @@ static void Initialize(void)
     global_desktops.IsEqual = Desktop_IsEqual;
 
     // hashset for toplevel handles
-    HashSet_Init(&global_toplevel_handles);
-
-    Vector_Init(&global_toplevel_handle_to_destroy, sizeof(struct ToplevelHandle *));
+    HashSet_Init(&global_toplevel_handles);    Vector_Init(&global_toplevel_handle_to_destroy, sizeof(struct ToplevelHandle *));
 
     // vector for desktop surface creation
     Vector_Init(&global_desktop_with_surface_creation_pending, sizeof(struct Desktop *));
@@ -261,6 +269,7 @@ static void Initialize(void)
 
 static void Cleanup(void)
 {
+    struct LinkedList_Iter iter_linkedlist = { };
     struct HashSet_Iter iter_hashset = { };
 
     // toplevel handles cleanup
@@ -309,14 +318,16 @@ static void Cleanup(void)
     if (wl_shm)
         wl_shm_destroy(wl_shm);
 
+    if (wp_cursor_shape_manager)
+        wp_cursor_shape_manager_v1_destroy(wp_cursor_shape_manager);
+
     if (wl_seat)
         wl_seat_destroy(wl_seat);
 
     if (wl_compositor)
         wl_compositor_destroy(wl_compositor);
 
-    if (wl_display)
-        wl_display_disconnect(wl_display);
+    wl_display_disconnect(wl_display);
 
     FTWordWrapLineBuffer_Cleanup(&global_ft_line_buffer);
     FTEssentials_Done(&global_ft_state);

@@ -24,6 +24,7 @@
 
 #include <wayland-client.h>
 
+#include "LinkedList.h"
 #include "HashSet.h"
 #include "DesktopLayerSurface.h"
 
@@ -48,11 +49,12 @@ struct Desktop
 
     // surface
     struct DesktopLayerSurface desktop_layer_surface;
-    struct Vector damage_rect_bounds; // typeof(SWRenderBoundI)
+    struct Vector damage_rect_bounds;   // typeof(SWRenderBoundI)
     bool damaged;
 
     // toplevel handle
-    struct HashSet toplevel_handles;
+    struct LinkedList toplevel_handles; // typeof(struct ToplevelHandle *)
+    struct LinkedList_Node *toplevel_handle_to_send_front;
 
     // selected handle and state
     struct ToplevelHandle *selected_handle;

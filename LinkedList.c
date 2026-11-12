@@ -1,20 +1,20 @@
 /*
     Copyright (C) 2026 Glacc
 
-    This file is part of wlr-task-desktop.
+    This file is part of gla-rwm.
 
-    wlr-task-desktop is free software: you can redistribute it
+    gla-rwm is free software: you can redistribute it
     and/or modify it under the terms of the GNU General Public
     License as published by the Free Software Foundation, either
     version 3 of the License, or (at your option) any later version.
 
-    wlr-task-desktop is distributed in the hope that it will be
+    gla-rwm is distributed in the hope that it will be
     useful, but WITHOUT ANY WARRANTY; without even the implied
     warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
     See the GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public
-    License along with wlr-task-desktop. If not,
+    License along with gla-rwm. If not,
     see <https://www.gnu.org/licenses/>. 
 */
 
@@ -22,9 +22,35 @@
 
 #include <malloc.h>
 
+struct LinkedList_Node *LinkedList_CreateNode(void *elem)
+{
+    struct LinkedList_Node *node = calloc(1, sizeof(*node));
+    
+    if (!node)
+        return NULL;
+
+    node->elem = elem;
+
+    return node;
+}
+
+void *LinkedList_DestroyNode(struct LinkedList_Node *node)
+{
+    if (!node)
+        return NULL;
+
+    LinkedList_DetachNode(node);
+
+    void *elem = node->elem;
+
+    free(node);
+
+    return elem;
+}
+
 #pragma region Insertion
 
-bool LinkedList_AddHead(struct LinkedList *list, void *elem)
+bool LinkedList_InsertElemHead(struct LinkedList *list, void *elem)
 {
     if (!list || !elem)
         return false;
@@ -56,7 +82,7 @@ bool LinkedList_AddHead(struct LinkedList *list, void *elem)
     return true;
 }
 
-bool LinkedList_AddTail(struct LinkedList *list, void *elem)
+bool LinkedList_InsertElemTail(struct LinkedList *list, void *elem)
 {
     if (!list || !elem)
         return false;
@@ -88,7 +114,7 @@ bool LinkedList_AddTail(struct LinkedList *list, void *elem)
     return true;
 }
 
-bool LinkedList_AddNext(struct LinkedList_Node *node, void *elem)
+bool LinkedList_InsertElemNext(struct LinkedList_Node *node, void *elem)
 {
     if (!node || !elem)
         return false;
@@ -99,7 +125,7 @@ bool LinkedList_AddNext(struct LinkedList_Node *node, void *elem)
 
     // node is tail
     if (node->list->tail == node)
-        return LinkedList_AddTail(node->list, elem);
+        return LinkedList_InsertElemTail(node->list, elem);
 
     // general
     struct LinkedList_Node *new_next = calloc(1, sizeof(*node));
@@ -122,7 +148,7 @@ bool LinkedList_AddNext(struct LinkedList_Node *node, void *elem)
     return true;
 }
 
-bool LinkedList_AddPrev(struct LinkedList_Node *node, void *elem)
+bool LinkedList_InsertElemPrev(struct LinkedList_Node *node, void *elem)
 {
     if (!node || !elem)
         return false;
@@ -133,7 +159,7 @@ bool LinkedList_AddPrev(struct LinkedList_Node *node, void *elem)
 
     // node is head
     if (node->list->head == node)
-        return LinkedList_AddHead(node->list, elem);
+        return LinkedList_InsertElemHead(node->list, elem);
 
     // general
     struct LinkedList_Node *new_prev = calloc(1, sizeof(*node));
@@ -152,6 +178,120 @@ bool LinkedList_AddPrev(struct LinkedList_Node *node, void *elem)
     node->prev = new_prev;
 
     node->list->count++;
+
+    return true;
+}
+
+bool LinkedList_InsertNodeHead(struct LinkedList *list, struct LinkedList_Node *node)
+{
+    if (!list || !node)
+        return false;
+
+    if (node->list)
+        return false;
+
+    node->list = list;
+
+    // not empty
+    if (list->head)
+    {
+        // node <-> old_head
+        list->head->prev = node;
+        node->next = list->head;
+    }
+    else
+        list->tail = node;
+
+    // head -> node
+    list->head = node;
+
+    list->count++;
+
+    return true;
+}
+
+bool LinkedList_InsertNodeTail(struct LinkedList *list, struct LinkedList_Node *node)
+{
+    if (!list || !node)
+        return false;
+
+    if (node->list)
+        return false;
+
+    node->list = list;
+
+    // not empty
+    if (list->tail)
+    {
+        // old_tail <-> node
+        list->tail->next = node;
+        node->prev = list->tail;
+    }
+    else
+        list->head = node;
+
+    // node <- tail
+    list->tail = node;
+
+    list->count++;
+
+    return true;
+}
+
+bool LinkedList_InsertNodeNext(struct LinkedList_Node *dst, struct LinkedList_Node *src)
+{
+    if (!dst || !src)
+        return false;
+
+    if (src->list)
+        return false;
+
+    // no list assigned
+    if (!dst->list)
+        return false;
+
+    // node is tail
+    if (dst->list->tail == dst)
+        return LinkedList_InsertNodeTail(dst->list, src);
+
+    src->list = dst->list;
+
+    // node <-> new_next <-> old_next
+    src->prev = dst;
+    src->next = dst->next;
+    dst->next->prev = src;
+    dst->next = src;
+
+    dst->list->count++;
+
+    return true;
+}
+
+bool LinkedList_InsertNodePrev(struct LinkedList_Node *dst, struct LinkedList_Node *src)
+{
+    if (!dst || !src)
+        return false;
+
+    if (src->list)
+        return false;
+
+    // no list assigned
+    if (!dst->list)
+        return false;
+
+    // node is head
+    if (dst->list->head == dst)
+        return LinkedList_InsertNodeHead(dst->list, src);
+
+    src->list = dst->list;
+
+    // old_prev <-> new_prev <-> node
+    src->prev = dst->prev;
+    src->next = dst;
+    dst->prev->next = src;
+    dst->prev = src;
+
+    dst->list->count++;
 
     return true;
 }
@@ -234,7 +374,7 @@ struct LinkedList_Node *LinkedList_IndexFromTail(struct LinkedList *list, size_t
         return NULL;
 
     struct LinkedList_Node *node = list->tail;
-    size_t idx_cur = list->count - 1;
+    size_t idx_cur = 0;
 
     while (node)
     {
@@ -243,7 +383,7 @@ struct LinkedList_Node *LinkedList_IndexFromTail(struct LinkedList *list, size_t
             return node;
 
         node = node->prev;
-        idx_cur--;
+        idx_cur++;
     }
 
     // unlikely
@@ -253,6 +393,43 @@ struct LinkedList_Node *LinkedList_IndexFromTail(struct LinkedList *list, size_t
 #pragma endregion
 
 #pragma region Deletion
+
+bool LinkedList_DetachNode(struct LinkedList_Node *node)
+{
+    if (!node || !node->list)
+        return false;
+
+    struct LinkedList *list = node->list;
+
+    // deatch head/tail
+    if (node == list->head)
+    {
+        list->head = node->next;
+
+        if (list->head == NULL)
+            list->tail = NULL;
+    }
+    else if (node == list->tail)
+    {
+        list->tail = node->prev;
+        
+        if (list->tail == NULL)
+            list->head = NULL;
+    }
+    else
+    {
+        node->prev->next = node->next;
+        node->next->prev = node->prev;
+    }
+
+    node->list = NULL;
+    node->prev = NULL;
+    node->next = NULL;
+
+    list->count--;
+
+    return true;
+}
 
 void *LinkedList_DelHead(struct LinkedList *list)
 {
@@ -312,33 +489,7 @@ void *LinkedList_DelTail(struct LinkedList *list)
 
 void *LinkedList_DelNode(struct LinkedList_Node *node)
 {
-    if (!node)
-        return NULL;
-
-    // no list assigned
-    if (!node->list)
-        return NULL;
-
-    // is head
-    if (node->list->head == node)
-        return LinkedList_DelHead(node->list);
-
-    // is tail
-    if (node->list->tail == node)
-        return LinkedList_DelTail(node->list);
-
-    // general
-    // prev <-> next
-    void *ret = node->elem;
-
-    node->prev->next = node->next;
-    node->next->prev = node->prev;
-
-    node->list->count--;
-
-    free(node);
-
-    return ret;
+    return LinkedList_DestroyNode(node);
 }
 
 void LinkedList_DelElemFromHead(struct LinkedList *list, void *elem)
@@ -402,20 +553,22 @@ void LinkedList_DelElemFromTail(struct LinkedList *list, void *elem)
 
 #pragma region Iterator
 
-void LinkedList_IterInit(struct LinkedList_Iter *iter, struct LinkedList *list)
+bool LinkedList_IterInit(struct LinkedList_Iter *iter, struct LinkedList *list)
 {
     if (!iter)
-        return;
+        return false;
 
     if (!list)
     {
         iter->list = NULL;
         iter->node = NULL;
-        return;
+        return false;
     }
 
     iter->list = list;
     iter->node = list->head;
+
+    return true;
 }
 
 struct LinkedList_Node *LinkedList_IterNext(struct LinkedList_Iter *iter)
@@ -433,7 +586,7 @@ struct LinkedList_Node *LinkedList_IterNext(struct LinkedList_Iter *iter)
     return node;
 }
 
-void *LinkedList_IterDel(struct LinkedList_Iter *iter)
+struct LinkedList_Node *LinkedList_IterDel(struct LinkedList_Iter *iter)
 {
     if (!iter)
         return NULL;
@@ -452,12 +605,12 @@ void *LinkedList_IterDel(struct LinkedList_Iter *iter)
     }
 
     struct LinkedList_Node *node = iter->node;
-    void *ret = node->elem;
 
     iter->node = node->next;
-    free(node);
 
-    return ret;
+    LinkedList_DetachNode(node);
+
+    return node;
 }
 
 #pragma endregion

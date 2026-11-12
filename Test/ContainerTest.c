@@ -51,7 +51,7 @@ static void TestLinkedList(void)
 
     // insertion
     for (int i = 0; i < test_strings_count; i++)
-        LinkedList_AddTail(&list, (void *)test_strings[i]);
+        LinkedList_InsertElemTail(&list, (void *)test_strings[i]);
 
     PrintStrLinkedList(&list);
 
@@ -65,9 +65,9 @@ static void TestLinkedList(void)
     node = LinkedList_FindNodeFromHead(&list, (void *)test_strings[list.count / 2]);
     puts((const char *)node->elem);
 
-    LinkedList_AddPrev(node, (void *)str_add_prev);
+    LinkedList_InsertElemPrev(node, (void *)str_add_prev);
     PrintStrLinkedList(&list);
-    LinkedList_AddNext(node, (void *)str_add_next);
+    LinkedList_InsertElemNext(node, (void *)str_add_next);
     PrintStrLinkedList(&list);
 
     // deletion

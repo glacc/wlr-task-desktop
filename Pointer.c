@@ -27,6 +27,8 @@
 
 #include "Utility.h"
 
+#include "Globals.h"
+
 int Pointer_debug_verbosity = 1;
 
 static void Pointer_SetBtnStateInternal(struct PointerState *pointer_state, uint32_t button, bool down, uint32_t time)
@@ -109,15 +111,16 @@ static void Pointer_Enter(
 
     pointer->surface = surface;
 
-    if (surface)
-    {
-        HashSet_Add(&pointer->surfaces_to_manage, surface, NULL);
-        surface->pointer = pointer;
-        surface->pointer_state.pointer_inside = true;
+    if (!surface)
+        return;
+    
+    HashSet_Add(&pointer->surfaces_to_manage, surface, NULL);
+    surface->pointer = pointer;
+    surface->pointer_enter_serial = serial;
+    surface->pointer_state.pointer_inside = true;
 
-        if (Pointer_debug_verbosity >= 2)
-            printf("pointer entered surface %s\n", surface->name);
-    }
+    if (Pointer_debug_verbosity >= 2)
+        printf("pointer entered surface %s\n", surface->name);
 }
 
 static void Pointer_Leave(
@@ -511,12 +514,20 @@ void Pointer_GetWlObj(struct Pointer *pointer, struct wl_seat *seat)
 
     pointer->wl_pointer = wl_seat_get_pointer(seat);
     wl_pointer_add_listener(pointer->wl_pointer, &Pointer_listener, pointer);
+
+    if (!wp_cursor_shape_manager)
+        return;
+
+    pointer->wp_cursor_shape_device = wp_cursor_shape_manager_v1_get_pointer(wp_cursor_shape_manager, pointer->wl_pointer);
 }
 
 void Pointer_DestroyWlObj(struct Pointer *pointer)
 {
     if (!pointer)
         return;
+
+    if (pointer->wp_cursor_shape_device)
+        wp_cursor_shape_device_v1_destroy(pointer->wp_cursor_shape_device);
 
     if (!pointer->wl_pointer)
         return;

@@ -49,6 +49,7 @@ struct DoubleBufferedSurface
 
     // pointer
     struct Pointer *pointer;
+    uint32_t pointer_enter_serial;
     struct PointerState pointer_state;
 };
 

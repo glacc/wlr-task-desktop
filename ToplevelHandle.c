@@ -154,7 +154,7 @@ static void ToplevelHandle_OutputEnter(
     // ref this->desktop
     HashSet_Add(&toplevel_handle->is_inside_desktops, desktop, NULL);
     // ref desktop->this
-    HashSet_Add(&desktop->toplevel_handles, toplevel_handle, NULL);
+    LinkedList_InsertElemTail(&desktop->toplevel_handles, toplevel_handle);
 
     // determine its desktop to iconify
     if (toplevel_handle->is_inside_desktops.count == 1)
@@ -187,7 +187,7 @@ static void ToplevelHandle_OutputLeave(
     // unref this->desktop
     HashSet_Del(&toplevel_handle->is_inside_desktops, desktop);
     // unref desktop->this
-    HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
+    LinkedList_DelElemFromTail(&desktop->toplevel_handles, toplevel_handle);
 
     // determine its desktop to iconify
     if (toplevel_handle->is_inside_desktops.count == 1)
@@ -332,7 +332,7 @@ static void ToplevelHandle_Closed(
     toplevel_handle->desktop_entry.visible = false;
 
     // unref this from toplevel manager
-    HashSet_Del(&global_toplevel_handles, toplevel_handle);
+    LinkedList_DelNode(toplevel_handle->linkedlist_node);
 
     // deconstruct pending
     Vector_Add(&global_toplevel_handle_to_destroy, &toplevel_handle);
@@ -463,7 +463,7 @@ void ToplevelHandle_Destroy(struct ToplevelHandle *toplevel_handle)
         {
             // TODO: redraw to remove icon of closed application
 
-            HashSet_Del(&desktop->toplevel_handles, toplevel_handle);
+            LinkedList_DelElemFromTail(&desktop->toplevel_handles, toplevel_handle);
 
             if (desktop->selected_handle == toplevel_handle)
                 desktop->selected_handle = NULL;

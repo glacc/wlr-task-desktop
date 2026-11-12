@@ -24,6 +24,7 @@
 
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
 
+#include "LinkedList.h"
 #include "HashSet.h"
 
 #include "SWRender/SWRender.h"
@@ -71,6 +72,8 @@ struct ToplevelHandle
     char *app_id;
 
     bool maximized, minimized, activated, fullscreen;
+
+    struct LinkedList_Node *linkedlist_node;
 
     struct ToplevelHandle *parent;
     struct HashSet children;    // typeof(struct ToplevelHandle *)

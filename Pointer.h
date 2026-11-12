@@ -21,6 +21,7 @@
 #pragma once
 
 #include <wayland-client.h>
+#include "cursor-shape-v1-client-protocol.h"
 
 #include "HashSet.h"
 
@@ -97,18 +98,17 @@ struct PointerState
 
     bool pointer_inside;
 
-    // typeof(struct PointerBtnState *)
-    struct HashSet button_states;
+    struct HashSet button_states;   // typeof(struct PointerBtnState *)
 };
 
 struct Pointer
 {
     struct wl_pointer *wl_pointer;
+    struct wp_cursor_shape_device_v1 *wp_cursor_shape_device;
 
     struct DoubleBufferedSurface *surface;
 
-    // typeof(struct DoubleBufferedSurface *)
-    struct HashSet surfaces_to_manage;
+    struct HashSet surfaces_to_manage;  // typeof(struct DoubleBufferedSurface *)
 };
 
 extern struct PointerBtnState *PointerBtnState_Create(uint32_t button);

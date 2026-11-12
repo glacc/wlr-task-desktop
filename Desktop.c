@@ -593,36 +593,40 @@ void Desktop_Draw(struct Desktop *desktop)
             continue;
         
         // get icon bounds in local coordinates
-        SWRenderRectI icon_rect =
+        SWRenderBuffer local_icon_buffer;
+        SWRenderRectI local_icon_rect =
         {
             toplevel_handle->desktop_entry.x - damage_rect_final.x,
             toplevel_handle->desktop_entry.y - damage_rect_final.y,
             toplevel_handle->desktop_entry.w,
             toplevel_handle->desktop_entry.h,
         };
-        SWRenderBoundI icon_bounds;
-        SWRender_RectToBoundInt(&icon_bounds, &icon_rect);
+        SWRenderBoundI local_icon_bounds;
+        SWRender_RectToBoundInt(&local_icon_bounds, &local_icon_rect);
 
+        // crop buffer for icon rendering
         // skip if not inside redraw region
-        if (!SWRender_GetIntersectionBetweenBoundInt(&local_redraw_render_buffer_bounds, &icon_bounds, NULL))
+        if (!SWRender_BufferCrop(&local_icon_buffer, &local_redraw_render_buffer, &local_icon_bounds))
             continue;
+
+        int render_offset_x = (local_icon_rect.x < 0) ? local_icon_rect.x : 0;
+        int render_offset_y = (local_icon_rect.y < 0) ? local_icon_rect.y : 0;
 
     #if DEBUG_DAMAGE == 1
         printf("redrawing '%s' at (%d, %d)\n", toplevel_handle->title, toplevel_handle->arrangement.x, toplevel_handle->arrangement.y);
     #endif
 
         // draw background
-        SWRender_FillRectRounded(&local_redraw_render_buffer, &(SWRenderBoundF){ icon_bounds.x1, icon_bounds.y1, icon_bounds.x2, icon_bounds.y2 }, 5.0f, (SWRenderColor){ 255, 255, 255, 63 });
+        SWRender_FillRectRounded(&local_redraw_render_buffer, &(SWRenderBoundF){ local_icon_bounds.x1, local_icon_bounds.y1, local_icon_bounds.x2, local_icon_bounds.y2 }, 5.0f, (SWRenderColor){ 255, 255, 255, 63 });
 
         // draw icon
         SWRenderVec2I icon_draw_pos = 
         {
-            icon_rect.x + (toplevel_handle->desktop_entry.w - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
-            icon_rect.y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
+            render_offset_x + (toplevel_handle->desktop_entry.w - DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_X) / 2,
+            render_offset_y + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
         };
-        SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &local_redraw_render_buffer, icon_draw_pos);
+        SWRender_CopyBuffer(&toplevel_handle->desktop_entry.icon_buf, NULL, &local_icon_buffer, icon_draw_pos);
 
-        // draw text
         int text_offset_y = DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TOP_PADDING
             + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_SIZE_Y
             + DEFAULT_TOPLEVEL_HANDLE_DESKTOP_ICON_TEXT_SPACING;
@@ -633,12 +637,12 @@ void Desktop_Draw(struct Desktop *desktop)
         FTRenderWordWrap_RenderStrWithAlign(
             &global_ft_state,
             &global_ft_line_buffer,
-            &local_redraw_render_buffer,
+            &local_icon_buffer,
             &(SWRenderRectF){
-                icon_rect.x,
-                icon_rect.y + text_offset_y,
-                icon_rect.w,
-                icon_rect.h - text_offset_y
+                render_offset_x,
+                render_offset_y + text_offset_y,
+                local_icon_rect.w,
+                local_icon_rect.h - text_offset_y
             },
             toplevel_handle->title,
             0, -1,

@@ -36,12 +36,12 @@ static void Seat_Capabilities(
     struct AppState *app_state = data;
 
     if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD)
-        Keyboard_GetWlObj(&global_keyboard, wl_seat);
+        Keyboard_SetWlObj(&global_keyboard, wl_seat);
     else
         Keyboard_DestroyWlObj(&global_keyboard);
     
     if (capabilities & WL_SEAT_CAPABILITY_POINTER)
-        Pointer_GetWlObj(&global_pointer, wl_seat);
+        Pointer_SetWlObj(&global_pointer, wl_seat);
     else
         Pointer_DestroyWlObj(&global_pointer);
 }
@@ -52,11 +52,11 @@ static void Seat_Name(
     const char *name
 )
 {
-    printf("seat name: %s\n", name);
+    // currently left blank
 }
 
 const struct wl_seat_listener Seat_listener =
 {
     .capabilities = Seat_Capabilities,
-    .name = Seat_Name,
+    .name         = Seat_Name,
 };

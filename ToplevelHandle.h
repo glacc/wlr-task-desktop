@@ -79,10 +79,11 @@ struct ToplevelHandle
     struct ToplevelHandle *parent;
     struct HashSet children;    // typeof(struct ToplevelHandle *)
     
-    struct HashSet is_inside_desktops;
+    struct HashSet is_inside_desktop;
 
     // only updated if there's only one Output in is_inside_outputs. NULL if zero.
     struct Desktop *iconify_to_desktop;
+    struct Desktop *last_iconified_to;
 
     struct ToplevelHandle_DesktopEntry desktop_entry;
 };

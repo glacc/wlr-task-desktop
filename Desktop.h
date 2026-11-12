@@ -25,8 +25,7 @@
 #include <wayland-client.h>
 
 #include "LinkedList.h"
-#include "HashSet.h"
-#include "DesktopLayerSurface.h"
+#include "DesktopSurface.h"
 
 #include "Vector.h"
 
@@ -37,19 +36,21 @@ struct Desktop
 
     uint32_t wl_name;
 
-    char *name;
-    char *description;
+    char *output_name;
+    char *output_description;
 
-    int32_t x, y;
-    int32_t phy_w, phy_h;
+    int32_t output_x, output_y;
+    int32_t output_phy_w, output_phy_h;
 
     int32_t w, h;
 
     int32_t scale;
 
     // surface
-    struct DesktopLayerSurface desktop_layer_surface;
-    struct Vector damage_rect_bounds;   // typeof(SWRenderBoundI)
+    struct DesktopSurface desktop_surface;
+    bool surface_created;
+
+    struct Vector damage_bounds;   // typeof(SWRenderBoundI)
     bool damaged;
 
     // toplevel handle
@@ -72,7 +73,9 @@ extern bool Desktop_IsEqual(void *l, void *r);
 extern struct Desktop *Desktop_Create(void);
 extern void Desktop_Destroy(struct Desktop *desktop);
 
-extern void Desktop_Update(struct Desktop *desktop);
+extern void Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w, int32_t h);
+extern void Desktop_AddDamageToplevelHandle(struct Desktop *desktop, struct ToplevelHandle *toplevel_handle);
 
-extern bool Desktop_AddDamage(struct Desktop *desktop, int32_t x, int32_t y, int32_t w, int32_t h);
-extern void Desktop_CheckRedrawAndTryCommit(struct Desktop *desktop);
+extern void Desktop_Update(struct Desktop *desktop);
+extern void Desktop_Draw(struct Desktop *desktop);
+extern bool Desktop_TryCommit(struct Desktop *desktop);

@@ -24,26 +24,7 @@
 
 int Keyboard_debug_verbosity = 1;
 
-void Keyboard_GetWlObj(struct Keyboard *keyboard, struct wl_seat *seat)
-{
-    if (!keyboard)
-        return;
-
-    keyboard->wl_keyboard = wl_seat_get_keyboard(seat);
-    wl_keyboard_add_listener(keyboard->wl_keyboard, &Keyboard_listener, keyboard);
-}
-
-void Keyboard_DestroyWlObj(struct Keyboard *keyboard)
-{
-    if (!keyboard)
-        return;
-
-    if (!keyboard->wl_keyboard)
-        return;
-
-    wl_keyboard_destroy(keyboard->wl_keyboard);
-    keyboard->wl_keyboard = NULL;
-}
+#pragma region KeyboardListeners
 
 static void Keyboard_Keymap(
     void *data,
@@ -143,3 +124,30 @@ const struct wl_keyboard_listener Keyboard_listener =
     .modifiers = Keyboard_Modifiers,
     .repeat_info = Keyboard_RepeatInfo,
 };
+
+#pragma endregion
+
+void Keyboard_Init(struct Keyboard *keyboard)
+{
+
+}
+
+void Keyboard_Cleanup(struct Keyboard *keyboard)
+{
+    Keyboard_DestroyWlObj(keyboard);
+}
+
+void Keyboard_SetWlObj(struct Keyboard *keyboard, struct wl_seat *seat)
+{
+    keyboard->wl_keyboard = wl_seat_get_keyboard(seat);
+    wl_keyboard_add_listener(keyboard->wl_keyboard, &Keyboard_listener, keyboard);
+}
+
+void Keyboard_DestroyWlObj(struct Keyboard *keyboard)
+{
+    if (!keyboard->wl_keyboard)
+        return;
+
+    wl_keyboard_destroy(keyboard->wl_keyboard);
+    keyboard->wl_keyboard = NULL;
+}

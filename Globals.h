@@ -1,26 +1,9 @@
-/*
-    Copyright (C) 2026 Glacc
-
-    This file is part of wlr-task-desktop.
-
-    wlr-task-desktop is free software: you can redistribute it
-    and/or modify it under the terms of the GNU General Public
-    License as published by the Free Software Foundation, either
-    version 3 of the License, or (at your option) any later version.
-
-    wlr-task-desktop is distributed in the hope that it will be
-    useful, but WITHOUT ANY WARRANTY; without even the implied
-    warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-    See the GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public
-    License along with wlr-task-desktop. If not,
-    see <https://www.gnu.org/licenses/>. 
-*/
-
 #pragma once
 
 #include <signal.h>
+
+#include "LinkedList.h"
+#include "HashSet.h"
 
 #include <wayland-client.h>
 #include "viewporter-client-protocol.h"
@@ -31,15 +14,8 @@
 #include "Keyboard.h"
 #include "Pointer.h"
 
-#include "HashSet.h"
-#include "Vector.h"
-
-#include "SWRender/FTEssentials.h"
-#include "SWRender/FTWordWrap.h"
-
-#ifndef DEBUG_DAMAGE
-#define DEBUG_DAMAGE 0
-#endif
+#include <SWRender/FTEssentials.h>
+#include <SWRender/FTWordWrap.h>
 
 extern struct wl_display    *wl_display;
 extern struct wl_registry   *wl_registry;
@@ -57,13 +33,13 @@ extern struct zwlr_foreign_toplevel_manager_v1 *zwlr_toplevel_manager;
 extern struct Keyboard global_keyboard;
 extern struct Pointer  global_pointer;
 
-extern struct HashSet global_desktops;                              // typeof(struct Desktop *)
-extern struct Vector global_desktop_with_surface_creation_pending;  // typeof(struct Desktop *)
+extern struct HashSet    global_desktops;          // typeof(struct Desktop *)
+extern struct LinkedList global_desktops_created;  // typeof(struct Desktop *)
 
-extern struct HashSet global_toplevel_handles;                      // typeof(struct ToplevelHandle *)
-extern struct Vector global_toplevel_handle_to_destroy;             // typeof(struct ToplevelHandle *)
+extern struct LinkedList global_toplevel_handles;          // typeof(struct ToplevelHandle *)
+extern struct LinkedList global_toplevel_handles_closed;   // typeof(struct ToplevelHandle *)
 
-extern FTEssentials_State global_ft_state;
+extern FTEssentials_State   global_ft_state;
 extern FTWordWrapLineBuffer global_ft_line_buffer;
 
-extern volatile sig_atomic_t global_exit;
+extern volatile sig_atomic_t global_interrupted;

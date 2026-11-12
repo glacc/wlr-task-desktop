@@ -39,7 +39,10 @@ struct Keyboard
     struct HashSet surfaces_to_manage;
 };
 
-extern void Keyboard_GetWlObj(struct Keyboard *keyboard, struct wl_seat *seat);
+extern void Keyboard_Init(struct Keyboard *keyboard);
+extern void Keyboard_Cleanup(struct Keyboard *keyboard);
+
+extern void Keyboard_SetWlObj(struct Keyboard *keyboard, struct wl_seat *seat);
 extern void Keyboard_DestroyWlObj(struct Keyboard *keyboard);
 
 extern const struct wl_keyboard_listener Keyboard_listener;

@@ -117,15 +117,15 @@ extern void PointerBtnState_Destroy(struct PointerBtnState* btn_state);
 extern size_t PointerBtnState_Hash(void *btn_state);
 extern bool PointerBtnState_IsEqual(void *l, void *r);
 
-extern bool PointerState_Init(struct PointerState *pointer_state);
+extern void PointerState_Init(struct PointerState *pointer_state);
 extern void PointerState_Cleanup(struct PointerState *pointer_state);
 
 extern void PointerState_PostDispatch(struct PointerState *pointer_state);
 
-extern bool Pointer_Init(struct Pointer *pointer);
+extern void Pointer_Init(struct Pointer *pointer);
 extern void Pointer_Cleanup(struct Pointer *pointer);
 
-extern void Pointer_GetWlObj(struct Pointer *pointer, struct wl_seat *seat);
+extern void Pointer_SetWlObj(struct Pointer *pointer, struct wl_seat *seat);
 extern void Pointer_DestroyWlObj(struct Pointer *pointer);
 
 extern struct PointerBtnState *Pointer_GetBtnState(struct PointerState *pointer_state, uint32_t button);

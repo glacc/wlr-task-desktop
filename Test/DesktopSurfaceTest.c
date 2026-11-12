@@ -1,4 +1,4 @@
-#include "DesktopLayerSurfaceTest.h"
+#include "DesktopSurfaceTest.h"
 
 #include <math.h>
 
@@ -56,13 +56,7 @@ static void ColorTransitionTo(SWRenderColor *pixel, SWRenderColor *color_dst, fl
     pixel->b = (uint8_t)b_new;
 }
 
-static inline void VersionMin(uint32_t *version, uint32_t supported)
-{
-    if (*version > supported)
-        *version = supported;
-}
-
-void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface)
+void TestPatternDrawOnDesktopLayerSurface(struct DesktopSurface *desktop_surface)
 {
     float alpha_norm = 0.5F;
     SWRenderColor color_bottom = { 127, 127, 127, 255 * alpha_norm };
@@ -70,16 +64,16 @@ void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surf
     color_bottom.g *= alpha_norm;
     color_bottom.b *= alpha_norm;
 
-    SWRenderColor *ptr_row_start = SWRender_GetPointerByPosition(&layer_surface->double_buffered_surface.render_buffer, 0, 0);
-    float progress_horz_inv = 1.0F / (float)layer_surface->double_buffered_surface.render_buffer.w;
-    float progress_vert_inv = 1.0F / (float)(layer_surface->double_buffered_surface.render_buffer.h - 1);
+    SWRenderColor *ptr_row_start = SWRender_GetPointerByPosition(&desktop_surface->surface.render_buffer, 0, 0);
+    float progress_horz_inv = 1.0F / (float) desktop_surface->surface.render_buffer.w;
+    float progress_vert_inv = 1.0F / (float)(desktop_surface->surface.render_buffer.h - 1);
 
-    for (int y = 0; y < layer_surface->double_buffered_surface.render_buffer.h; y++)
+    for (int y = 0; y < desktop_surface->surface.render_buffer.h; y++)
     {
         SWRenderColor *ptr_pixel = ptr_row_start;
         float vert_progress = y * progress_vert_inv;
 
-        for (int x = 0; x < layer_surface->double_buffered_surface.render_buffer.w; x++)
+        for (int x = 0; x < desktop_surface->surface.render_buffer.w; x++)
         {
             float horz_progress = x * progress_horz_inv;
             *ptr_pixel = GetTransitionColor(alpha_norm, horz_progress);
@@ -87,7 +81,7 @@ void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surf
             ptr_pixel++;
         }
 
-        ptr_row_start += layer_surface->double_buffered_surface.render_buffer.w;
+        ptr_row_start += desktop_surface->surface.render_buffer.w;
     }
 
     /*
@@ -99,12 +93,12 @@ void TestPatternDrawOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surf
     */
 }
 
-void TestSWRenderOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface)
+void TestSWRenderOnDesktopLayerSurface(struct DesktopSurface *desktop_surface)
 {
-    if (!layer_surface)
+    if (!desktop_surface)
         return;
 
-    SWRenderBuffer *swr_buf = &layer_surface->double_buffered_surface.render_buffer;
+    SWRenderBuffer *swr_buf = &desktop_surface->surface.render_buffer;
 
     if (!swr_buf->data)
         return;
@@ -144,15 +138,14 @@ void TestSWRenderOnDesktopLayerSurface(struct DesktopLayerSurface *layer_surface
     }
 }
 
-void TestDesktopLayerSurface(struct DesktopLayerSurface *layer_surface)
+void TestDesktopSurface(struct DesktopSurface *desktop_surface)
 {
-    if (!DesktopLayerSurface_Init(layer_surface, NULL))
-        return;
+    DesktopSurface_Init(desktop_surface, NULL);
     
-    TestPatternDrawOnDesktopLayerSurface(layer_surface);
+    TestPatternDrawOnDesktopLayerSurface(desktop_surface);
 
-    DoubleBufferedSurface_AddDamage(&layer_surface->double_buffered_surface, NULL);
-    DoubleBufferedSurface_TryCommit(&layer_surface->double_buffered_surface);
+    DoubleBufferedSurface_AddDamage(&desktop_surface->surface, NULL);
+    DoubleBufferedSurface_TryCommit(&desktop_surface->surface);
 
     wl_display_roundtrip(wl_display);
 }

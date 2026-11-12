@@ -20,16 +20,6 @@
 
 #include "DoubleBufferedSurface.h"
 
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <malloc.h>
-
-#include "Keyboard.h"
-#include "Pointer.h"
-
-#include "Utility.h"
-
 #include "Globals.h"
 
 #include "SWRender/SWRender.h"
@@ -94,39 +84,22 @@ static void DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(struct Buffer *dst
     }
 }
 
-bool DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface)
+void DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface)
 {
-    if (!surface || !wl_compositor)
-        return false;
-
     surface->keyboard = NULL;
     surface->pointer  = NULL;
 
     surface->name = NULL;
 
-    surface->commit_time[0] = surface->commit_time[1] = 10;
-    surface->callback_followed_commit_count = 0;
-
     // surface creation
-    surface->surface = wl_compositor_create_surface(wl_compositor);
-    if (!surface->surface)
-    {
-        fprintf(stderr, "failed to create surface: %s\n", strerror(errno));
-        return false;
-    }
-
-    wl_surface_set_user_data(surface->surface, surface);
+    surface->wl_surface = wl_compositor_create_surface(wl_compositor);
+    wl_surface_set_user_data(surface->wl_surface, surface);
 
     // reserved for future use?
-    surface->callback = NULL;
+    surface->wl_callback = NULL;
 
     // pointer state
-    if (!PointerState_Init(&surface->pointer_state))
-    {
-        fprintf(stderr, "failed to init pointer state for surface: %s\n", strerror(errno));
-        DoubleBufferedSurface_Cleanup(surface);
-        return false;
-    }
+    PointerState_Init(&surface->pointer_state);
 
     // make buffer internals NULL
     // damage_rects vector 0-1 initialization
@@ -135,72 +108,37 @@ bool DoubleBufferedSurface_Init(struct DoubleBufferedSurface *surface)
         surface->buffer[i].buffer = NULL;
         surface->buffer[i].pixels = NULL;
 
-        if (!Vector_Init(&surface->damage_rects[i], sizeof(struct Buffer_Rect)))
-        {
-            fprintf(stderr, "failed to init damage rect vector for surface: %s\n", strerror(errno));
-            DoubleBufferedSurface_Cleanup(surface);
-            return false;
-        }
+        Vector_Init(&surface->damage_rects[i], sizeof(struct Buffer_Rect));
     }
-
-    return true;
 }
 
-bool DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, int32_t w, int32_t h)
+void DoubleBufferedSurface_SetSize(struct DoubleBufferedSurface *surface, int32_t w, int32_t h)
 {
-    if (!surface)
-        return false;
-
-    if (!surface->surface)
-        return false;
-
     SWRender_BufferFree(&surface->render_buffer);
 
-    // buffer 0-1 reallocation
     for (int i = 0; i < 2; i++)
     {
         Buffer_Cleanup(&surface->buffer[i]);
-
-        if (!Buffer_Init(&surface->buffer[i], w, h))
-            goto Error;
-
+        Buffer_Init(&surface->buffer[i], w, h);
         Vector_Clear(&surface->damage_rects[i]);
     }
 
-    surface->render_buffer.w = w;
-    surface->render_buffer.h = h;
-    if (!SWRender_BufferAlloc(&surface->render_buffer))
-        goto Error;
+    surface->w = surface->render_buffer.w = w;
+    surface->h = surface->render_buffer.h = h;
+    SWRender_BufferAlloc(&surface->render_buffer);
 
     surface->commit_count = 0;
-
-    return true;
-
-Error:
-    DoubleBufferedSurface_Cleanup(surface);
-
-    return false;
 }
 
 void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface)
 {
-    if (!surface)
-        return;
-
     if (surface->name)
         free(surface->name);
 
-    if (surface->callback)
-    {
-        wl_callback_destroy(surface->callback);
-        surface->callback = NULL;
-    }
+    if (surface->wl_callback)
+        wl_callback_destroy(surface->wl_callback);
 
-    if (surface->surface)
-    {
-        wl_surface_destroy(surface->surface);
-        surface->surface = NULL;
-    }
+    wl_surface_destroy(surface->wl_surface);
 
     for (int i = 0; i < 2; i++)
     {
@@ -208,12 +146,13 @@ void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface)
         Vector_Cleanup(&surface->damage_rects[i]);
     }
 
-    // unref this
+    // unref this from pointer
     if (surface->pointer)
     {
-        HashSet_Del(&surface->pointer->surfaces_to_manage, surface);
         if (surface->pointer->surface == surface)
             surface->pointer->surface = NULL;
+
+        HashSet_Del(&surface->pointer->surfaces_to_manage, surface);
     }
 
     PointerState_Cleanup(&surface->pointer_state);
@@ -221,27 +160,18 @@ void DoubleBufferedSurface_Cleanup(struct DoubleBufferedSurface *surface)
     SWRender_BufferFree(&surface->render_buffer);
 }
 
-bool DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, const struct Buffer_Rect *rect)
+void DoubleBufferedSurface_AddDamage(struct DoubleBufferedSurface *surface, const struct Buffer_Rect *rect)
 {
-    if (!surface)
-        return false;
-
     struct Vector *vec_damage_rects = &surface->damage_rects[surface->commit_count & 1];
 
     if (rect)
-        return Vector_Add(vec_damage_rects, (void *)rect);
+        Vector_Add(vec_damage_rects, (void *)rect);
     else
-        return Vector_Add(vec_damage_rects, &(struct Buffer_Rect){ 0, 0, surface->render_buffer.w, surface->render_buffer.h });
+        Vector_Add(vec_damage_rects, &(struct Buffer_Rect){ 0, 0, surface->render_buffer.w, surface->render_buffer.h });
 }
 
 bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
 {
-    if (!surface)
-        return false;
-
-    if (!surface->surface)
-        return false;
-
     unsigned int curr_buffer = surface->commit_count & 1;
     struct Buffer *buffer_curr = &surface->buffer[curr_buffer];
 
@@ -249,7 +179,7 @@ bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
         return false;
 
     // attach current buffer
-    wl_surface_attach(surface->surface, buffer_curr->buffer, 0, 0);
+    wl_surface_attach(surface->wl_surface, buffer_curr->buffer, 0, 0);
 
     unsigned int prev_buffer = curr_buffer ^ 1;
     struct Buffer *buffer_prev = &surface->buffer[prev_buffer];
@@ -267,7 +197,7 @@ bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
     #else
         DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect);
     #endif
-        wl_surface_damage_buffer(surface->surface, rect->x, rect->y, rect->w, rect->h);
+        wl_surface_damage_buffer(surface->wl_surface, rect->x, rect->y, rect->w, rect->h);
     }
     Vector_Clear(&surface->damage_rects[prev_buffer]);
 
@@ -281,25 +211,22 @@ bool DoubleBufferedSurface_TryCommit(struct DoubleBufferedSurface *surface)
     #else
         DoubleBufferedSurface_CopyRectFromSurfaceToBuffer(buffer_curr, surface, rect);
     #endif
-        wl_surface_damage_buffer(surface->surface, rect->x, rect->y, rect->w, rect->h);
+        wl_surface_damage_buffer(surface->wl_surface, rect->x, rect->y, rect->w, rect->h);
     }
 
     // flip
-    wl_surface_commit(surface->surface);
+    wl_surface_commit(surface->wl_surface);
     buffer_curr->available = false;
 
     surface->commit_count++;
-    surface->commit_time[curr_buffer] = surface->commit_count;
 
     return true;
 }
 
-bool DoubleBufferedSurface_SetName(struct DoubleBufferedSurface *surface, const char *name)
+void DoubleBufferedSurface_SetName(struct DoubleBufferedSurface *surface, const char *name)
 {
-    if (!surface)
-        return false;
+    if (surface->name)
+        free(surface->name);
 
-    Utility_TryReplaceWithAnotherString(&surface->name, name);
-
-    return (surface->name != NULL);
+    surface->name = strdup(name);
 }

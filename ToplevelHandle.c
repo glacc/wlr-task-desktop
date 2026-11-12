@@ -189,6 +189,9 @@ static void ToplevelHandle_OutputLeave(
     // unref desktop->this
     LinkedList_DelElemFromTail(&desktop->toplevel_handles, toplevel_handle);
 
+    if (desktop->selected_handle == toplevel_handle)
+        desktop->selected_handle = NULL;
+
     // determine its desktop to iconify
     if (toplevel_handle->is_inside_desktops.count == 1)
     {
@@ -202,6 +205,9 @@ static void ToplevelHandle_OutputLeave(
 
         toplevel_handle->desktop_entry.has_not_been_minimized_since_last_desktop_change = !toplevel_handle->minimized;
 
+        toplevel_handle->desktop_entry.recalc_position_when_minimize = true;
+
+        // debug output
         if (ToplevelHandle_debug_verbosity >= 1)
             ToplevelHandle_PrintIconifyToDesktop(toplevel_handle);
     }

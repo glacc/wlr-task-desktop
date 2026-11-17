@@ -1573,6 +1573,8 @@ void desktops_manage(void)
 
         desktop_manage_desktop_icon_state_updates(desktop);
 
+        desktop_manage_input_region(desktop);
+
         if (double_buffer_surface_is_any_buffer_available(&desktop->double_buffer_surface))
         {
             desktop_consume_render_flags_and_calculate_redraw_region(desktop);
@@ -1580,8 +1582,6 @@ void desktops_manage(void)
             desktop_render_redraw_region(desktop);
 
             desktop_surface_commit(desktop);
-
-            desktop_manage_input_region(desktop);
         }
 
         desktop_manage_desktop_icon_removal(desktop);

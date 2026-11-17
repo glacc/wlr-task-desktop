@@ -2,8 +2,8 @@
 
 APP_NAME?=wlr-task-desktop
 
-C_DIR=./ ./Test ./sw-render/SWRender
-PKGS=wayland-client freetype2 libavformat libavcodec libavutil libswscale libunibreak
+C_DIR=./ ./sw-render/SWRender
+PKGS=wayland-client xkbcommon freetype2 libavformat libavcodec libavutil libswscale libunibreak
 
 # define
 CFLAGS+=-D_SWRENDER_USE_NON_RGBA_PIXFMT_

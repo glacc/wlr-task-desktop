@@ -1432,7 +1432,7 @@ static void desktop_consume_render_flags_and_calculate_redraw_region(struct desk
 
         // TODO: transition from last valid to curr invalid?
 
-        if (!desktop_icon_geometry_is_position_equal(&desktop_icon->geometry_last_render, &desktop_icon->geometry))
+        if (!desktop_icon_geometry_is_bounds_equal(&desktop_icon->geometry_last_render, &desktop_icon->geometry))
         {
             if (last_geometry_visible)
                 desktop_icon_geometry_damage_desktop(&desktop_icon->geometry_last_render, desktop);

@@ -1580,9 +1580,9 @@ void desktops_manage(void)
             desktop_render_redraw_region(desktop);
 
             desktop_surface_commit(desktop);
-
-            desktop_manage_input_region(desktop);
         }
+
+        desktop_manage_input_region(desktop);
 
         desktop_manage_desktop_icon_removal(desktop);
     }

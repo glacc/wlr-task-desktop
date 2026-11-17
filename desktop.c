@@ -37,14 +37,14 @@
 #include "SWRender/FTRenderWordWrap.h"
 
 #define DESKTOP_ICON_DEFAULT_W                  96
-#define DESKTOP_ICON_DEFAULT_H                  112
+#define DESKTOP_ICON_DEFAULT_H                  128
 #define DESKTOP_ICON_DEFAULT_CORNER_RADIUS      5.0F
 #define DESKTOP_ICON_DEFAULT_SPACING            2
 
-#define DESKTOP_ICON_DEFAULT_ICON_TOP_PADDING   4
-#define DESKTOP_ICON_DEFAULT_ICON_SIZE_X        48
-#define DESKTOP_ICON_DEFAULT_ICON_SIZE_Y        48
-#define DESKTOP_ICON_DEFAULT_ICON_TEXT_SPACING  4
+#define DESKTOP_ICON_DEFAULT_ICON_TOP_PADDING   6
+#define DESKTOP_ICON_DEFAULT_ICON_SIZE_X        56
+#define DESKTOP_ICON_DEFAULT_ICON_SIZE_Y        56
+#define DESKTOP_ICON_DEFAULT_ICON_TEXT_SPACING  6
 #define DESKTOP_ICON_DEFAULT_TEXT_SIZE          8.5F
 #define DESKTOP_ICON_DEFAULT_TEXT_LINESPACE_MUL 0.775F
 
@@ -65,14 +65,24 @@ struct desktop_icon_gradient
 
 static const struct desktop_icon_gradient desktop_icon_gradients[] =
 {
-    { { 0xFF, 0xFF, 0xFF, 0x30 }, 0.00F },
-    { { 0xFF, 0xFF, 0xFF, 0x30 }, 0.00F },
-    { { 0xFF, 0xFF, 0xFF, 0x53 }, 0.25F },
-    { { 0xFF, 0xFF, 0xFF, 0x39 }, 0.60F },
-    { { 0xFF, 0xFF, 0xFF, 0x15 }, 1.00F },
-    { { 0xFF, 0xFF, 0xFF, 0x15 }, 1.00F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x30 }, 0.00F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x30 }, 0.00F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x53 }, 0.25F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x39 }, 0.60F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x15 }, 1.00F },
+    //{ { 0xFF, 0xFF, 0xFF, 0x15 }, 1.00F },
+    { { 0xFF, 0xFF, 0xFF, 0x43 }, 0.00F },
+    { { 0xFF, 0xFF, 0xFF, 0x43 }, 0.00F },
+    { { 0xFF, 0xFF, 0xFF, 0x4D }, 0.20F },
+    { { 0xFF, 0xFF, 0xFF, 0x49 }, 0.40F },
+    { { 0xFF, 0xFF, 0xFF, 0x41 }, 0.62F },
+    { { 0xFF, 0xFF, 0xFF, 0x28 }, 1.00F },
+    { { 0xFF, 0xFF, 0xFF, 0x28 }, 1.00F },
 };
 static const int desktop_icon_gradients_count = (sizeof(desktop_icon_gradients) / sizeof(desktop_icon_gradients[0]));
+static const SWRenderColorF desktop_icon_selected_color_tint = { .r = 0.5F, .g = 0.7F, .b = 1.0F, .a = 1.0F };
+
+const char str_ellipsis[] = "...";
 
 #pragma region desktop_icon
 
@@ -170,20 +180,23 @@ static bool desktop_icon_has_intersection_between(struct desktop *desktop, struc
     return SWRender_GetIntersectionBetweenBoundInt(&bound_l, &bound_r, NULL);
 }
 
-static void desktop_icon_render_gradients(struct desktop_icon *desktop_icon)
+static void desktop_icon_render_gradients(struct desktop_icon *desktop_icon, int y_end)
 {
+    if (y_end > desktop_icon->swrender_buffer_content.h)
+        y_end = desktop_icon->swrender_buffer_content.h;
+
     int y = 0;
 
     SWRenderColor *ptr_row_start = SWRender_GetPointerByPosition(&desktop_icon->swrender_buffer_content, 0, 0);
 
     for (int i = 1; i < desktop_icon_gradients_count - 1; i++)
     {
-        int y_start_this_gradient = desktop_icon->swrender_buffer_content.h * desktop_icon_gradients[i - 1].position;
-        int y_end_this_gradient   = desktop_icon->swrender_buffer_content.h * desktop_icon_gradients[i].position;
+        int y_start_this_gradient = y_end * desktop_icon_gradients[i - 1].position;
+        int y_end_this_gradient   = y_end * desktop_icon_gradients[i].position;
         float progress_div_mul = 1.0F / (float)(y_end_this_gradient - y_start_this_gradient);
 
-        if (y_end_this_gradient > desktop_icon->swrender_buffer_content.h)
-            y_end_this_gradient = desktop_icon->swrender_buffer_content.h;
+        if (y_end_this_gradient > y_end)
+            y_end_this_gradient = y_end;
         
         while (y < y_end_this_gradient)
         {
@@ -339,11 +352,60 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
     if (!desktop_icon->redraw_content)
         return;
 
-    // TODO: precalculate title lines here and resize geometry?
-
-    // TODO: set size by title...?
     desktop_icon->geometry.draw_w = desktop->icon_w;
     desktop_icon->geometry.draw_h = desktop->icon_h;
+
+    // ------------------- title word wrapping calculation --------------------
+    int title_start_y = DESKTOP_ICON_DEFAULT_ICON_TOP_PADDING + DESKTOP_ICON_DEFAULT_ICON_SIZE_Y + DESKTOP_ICON_DEFAULT_ICON_TEXT_SPACING;
+    FT_F26Dot6 cursor_y_start = INT_TO_F26DOT6(title_start_y);
+    int ellipsis_at_line = -1;
+
+    if (desktop_icon->title)
+    {
+        free(desktop_icon->title);
+        desktop_icon->title = NULL;
+    }
+    if (desktop_icon->toplevel_handle->title)
+    {
+        desktop_icon->title = strdup(desktop_icon->toplevel_handle->title);
+        assert(desktop_icon->title != NULL);
+
+        FTEssentials_SetSize96DPI(&ft_state, FLOAT_TO_F26DOT6(desktop->icon_title_font_size));
+        ft_state.linespace_multiplier = DESKTOP_ICON_DEFAULT_TEXT_LINESPACE_MUL;
+
+        FTWordWrap_GetLinesWidthLimited(&desktop_icon->title_line_buffer, &ft_state, desktop_icon->title, INT_TO_F26DOT6(desktop_icon->geometry.draw_w), NULL, false);
+        if (desktop_icon->title_line_buffer.count >= 1)
+            cursor_y_start -= desktop_icon->title_line_buffer.lines[0].bound_top;
+
+        // considers only multi-line condition
+        if (desktop_icon->title_line_buffer.count >= 2)
+        {
+            // only line height needed to be calculated
+            FT_F26Dot6 cursor_y = cursor_y_start + desktop_icon->title_line_buffer.linespace;
+            FT_F26Dot6 bottom_bound_y = INT_TO_F26DOT6(desktop_icon->geometry.draw_h);
+            FT_F26Dot6 bottom_y_final = cursor_y + desktop_icon->title_line_buffer.lines[0].bound_bottom;
+
+            for (int i = 1; i < desktop_icon->title_line_buffer.count; i++)
+            {
+                FTWordWrapLine *line = &desktop_icon->title_line_buffer.lines[i];
+
+                FT_F26Dot6 bottom_y = cursor_y + line->bound_bottom;
+                if (!desktop_icon->is_selected && (bottom_y >= bottom_bound_y))
+                {
+                    ellipsis_at_line = i - 1;
+                    break;
+                }
+                else
+                    bottom_y_final = bottom_y;
+                
+                cursor_y += desktop_icon->title_line_buffer.linespace;
+            }
+
+            int bottom_y_final_int = F26DOT6_TO_INT(bottom_y_final);
+            if (bottom_y_final_int > desktop_icon->geometry.draw_h)
+                desktop_icon->geometry.draw_h = bottom_y_final_int;
+        }
+    }
 
     // reallocate 
     if (!SWRender_CheckBuffer(&desktop_icon->swrender_buffer_content))
@@ -361,9 +423,11 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
         assert(allocated == true);
     }
     
+    // ------------------------------ rendering -------------------------------
+
     // background
     //SWRender_FillRect(&desktop_icon->swrender_buffer_content, NULL, (SWRenderColor){ 255, 255, 255, 63 }, true);
-    desktop_icon_render_gradients(desktop_icon);
+    desktop_icon_render_gradients(desktop_icon, desktop->icon_h);
 
     // icon
     if (desktop_icon->toplevel_handle->icon_changed && SWRender_CheckBuffer(&desktop_icon->toplevel_handle->swrender_buffer_icon))
@@ -389,16 +453,6 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
     // title
     if (desktop_icon->title)
     {
-        free(desktop_icon->title);
-        desktop_icon->title = NULL;
-    }
-
-    if (desktop_icon->toplevel_handle->title)
-    {
-        desktop_icon->title = strdup(desktop_icon->toplevel_handle->title);
-        assert(desktop_icon->title != NULL);
-
-        int title_start_y = DESKTOP_ICON_DEFAULT_ICON_TOP_PADDING + DESKTOP_ICON_DEFAULT_ICON_SIZE_Y + DESKTOP_ICON_DEFAULT_ICON_TEXT_SPACING;
         SWRenderRectF title_render_rect =
         {
             0,
@@ -407,8 +461,7 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
             desktop_icon->geometry.draw_h - title_start_y,
         };
         
-        FTEssentials_SetSize96DPI(&ft_state, FLOAT_TO_F26DOT6(desktop->icon_title_font_size));
-        ft_state.linespace_multiplier = DESKTOP_ICON_DEFAULT_TEXT_LINESPACE_MUL;
+    #if 0
         FTRenderWordWrap_RenderStrWithAlign(
             &ft_state,
             &desktop_icon->title_line_buffer,
@@ -418,9 +471,47 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
             0, -1,
             (SWRenderColor){ .a = 255 }
         );
+    #endif
+        FT_F26Dot6 cursor_y = cursor_y_start;
+        FT_F26Dot6 center_x = INT_TO_F26DOT6(desktop_icon->geometry.draw_w) / 2;
+        for (int i = 0; i < desktop_icon->title_line_buffer.count; i++)
+        {
+            if (i == ellipsis_at_line)
+            {
+                
+                FT_F26Dot6 dummy, bound_left, bound_right;
+                FTEssentials_GetStrBounds(&ft_state, "...", &dummy, &bound_left, &bound_right, &dummy, false);
 
-        // TODO: scale icon here?
+                FT_F26Dot6 offset_x = -(bound_left + bound_right) / 2;
 
+                FTRender_RenderStr(
+                    &ft_state,
+                    &desktop_icon->swrender_buffer_content,
+                    center_x + offset_x,
+                    cursor_y,
+                    str_ellipsis,
+                    SIZE_MAX,
+                    (SWRenderColor){ .a = 255 }
+                );
+                break;
+            }
+
+            FTWordWrapLine *line = &desktop_icon->title_line_buffer.lines[i];
+
+            FT_F26Dot6 offset_x = -(line->bound_left + line->bound_right) / 2;
+
+            FTRender_RenderStr(
+                &ft_state,
+                &desktop_icon->swrender_buffer_content,
+                center_x + offset_x,
+                cursor_y,
+                desktop_icon->title + line->offset,
+                line->bytes,
+                (SWRenderColor){ .a = 255 }
+            );
+
+            cursor_y += desktop_icon->title_line_buffer.linespace;
+        }
     }
 
     if (desktop_icon->is_selected)
@@ -1255,6 +1346,7 @@ static void desktop_manage_input_events(struct desktop *desktop)
             bool mmb_press_on_icon   = mmb_state->pressed && desktop_icon_geometry_is_position_inside(&desktop_icon->geometry, desktop, mmb_state->press_x_int, mmb_state->press_y_int);
             bool lmb_press_on_icon   = lmb_state->pressed && desktop_icon_geometry_is_position_inside(&desktop_icon->geometry, desktop, lmb_state->press_x_int, lmb_state->press_y_int);
             bool mmb_release_on_icon = mmb_state->released && desktop_icon_geometry_is_position_inside(&desktop_icon->geometry, desktop, mmb_state->release_x_int, mmb_state->release_y_int);
+            bool lmb_drag = lmb_state->is_dragging || lmb_state->drag_stopped;
 
             if (lmb_press_on_icon || mmb_press_on_icon)
             {
@@ -1264,7 +1356,7 @@ static void desktop_manage_input_events(struct desktop *desktop)
             }
             if (lmb_state->double_clicked && lmb_press_on_icon)
                 desktop_icon_to_open  = desktop_icon;
-            if (mmb_release_on_icon && (desktop_icon == desktop->selected_desktop_icon))
+            if (mmb_release_on_icon && !lmb_drag && !mmb_state->drag_stopped && (desktop_icon == desktop->selected_desktop_icon))
                 desktop_icon_to_close = desktop_icon;
         }
     }

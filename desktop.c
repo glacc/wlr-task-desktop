@@ -220,6 +220,15 @@ static void desktop_icon_render_gradients(struct desktop_icon *desktop_icon, int
             y++;
         }
     }
+
+    // clears the bottom of the buffer
+    size_t visible_size_per_row = desktop_icon->swrender_buffer_content.w * sizeof(SWRenderColor);
+    while (y < desktop_icon->swrender_buffer_content.h)
+    {
+        memset(ptr_row_start, 0, visible_size_per_row);
+        ptr_row_start = SWRender_GetPointerNextLine(&desktop_icon->swrender_buffer_content, ptr_row_start);
+        y++;
+    }
 }
 
 static void desktop_icon_manage_may_pend_redraw_content(struct desktop_icon *desktop_icon, struct desktop *desktop)

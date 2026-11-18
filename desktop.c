@@ -99,6 +99,8 @@ static struct desktop_icon *desktop_icon_create(struct toplevel_handle *toplevel
 
     desktop_icon->redraw_content = true;
 
+    desktop_icon->reload_icon_from_toplevel_handle = true;
+
     return desktop_icon;
 }
 
@@ -239,8 +241,14 @@ static void desktop_icon_manage_may_pend_redraw_content(struct desktop_icon *des
         desktop_icon->redraw_content = true;
     }
 
-    if (desktop_icon->toplevel_handle->title_changed || desktop_icon->toplevel_handle->app_id_changed || desktop_icon->toplevel_handle->icon_changed)
+    if (desktop_icon->toplevel_handle->title_changed || desktop_icon->toplevel_handle->app_id_changed)
         desktop_icon->redraw_content = true;
+
+    if (desktop_icon->toplevel_handle->icon_changed)
+    {
+        desktop_icon->reload_icon_from_toplevel_handle = true;
+        desktop_icon->redraw_content = true;
+    }
 }
 
 static void desktop_icon_manage_visibility(struct desktop_icon *desktop_icon, struct desktop *desktop)
@@ -430,7 +438,7 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
     desktop_icon_render_gradients(desktop_icon, desktop->icon_h);
 
     // icon
-    if (desktop_icon->toplevel_handle->icon_changed && SWRender_CheckBuffer(&desktop_icon->toplevel_handle->swrender_buffer_icon))
+    if (desktop_icon->reload_icon_from_toplevel_handle && SWRender_CheckBuffer(&desktop_icon->toplevel_handle->swrender_buffer_icon))
     {
         if (SWRender_CheckBuffer(&desktop_icon->swrender_buffer_icon_scaled))
             SWRender_BufferFree(&desktop_icon->swrender_buffer_icon_scaled);
@@ -439,7 +447,7 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
         desktop_icon->swrender_buffer_icon_scaled.h = DESKTOP_ICON_DEFAULT_ICON_SIZE_Y;
         SWRender_DupSWScaledToBuffer(&desktop_icon->toplevel_handle->swrender_buffer_icon, &desktop_icon->swrender_buffer_icon_scaled);
 
-        desktop_icon->toplevel_handle->icon_changed = false;
+        desktop_icon->reload_icon_from_toplevel_handle = false;
     }
 
     if (SWRender_CheckBuffer(&desktop_icon->swrender_buffer_icon_scaled))
@@ -539,6 +547,11 @@ static void desktop_icon_may_render_content(struct desktop_icon *desktop_icon, s
     desktop_icon->redraw_content = false;
 
     desktop_icon->redraw = true;
+}
+
+static void desktop_icon_manage_post_update(struct desktop_icon *desktop_icon)
+{
+    desktop_icon->reload_icon_from_toplevel_handle = false;
 }
 
 #pragma endregion
@@ -802,6 +815,8 @@ static void toplevel_handle_manage_post_update(struct toplevel_handle *toplevel_
     toplevel_handle->minimized_changed = false;
 
     toplevel_handle->desktop_changed = false;
+
+    toplevel_handle->icon_changed = false;
 }
 
 #pragma endregion
@@ -1558,7 +1573,14 @@ static void desktop_surface_commit(struct desktop *desktop)
 
 static void desktop_manage_post_update(struct desktop *desktop)
 {
-    // TODO: desktop post update?
+    struct linked_list_iterator iterator_desktop_icons = { };
+    struct linked_list_node *desktop_icon_node = NULL;
+    linked_list_iterator_init(&iterator_desktop_icons, &desktop->desktop_icons);
+    while ((desktop_icon_node = linked_list_iterator_next(&iterator_desktop_icons)))
+    {
+        struct desktop_icon *desktop_icon = desktop_icon_node->elem;
+        desktop_icon_manage_post_update(desktop_icon);
+    }
 }
 
 static void desktop_manage_desktop_icon_removal(struct desktop *desktop)
@@ -1629,6 +1651,8 @@ void desktops_pend_remove_by_name(uint32_t name)
         return;
        
     desktop_to_remove->removed = true;
+
+    debug_printf("desktop of output '%s' removed\n", debug_str_nullable(desktop_to_remove->output_name));
 
     struct linked_list_node *node_desktop_to_remove = linked_list_node_create(desktop_to_remove);
     linked_list_insert_node_tail(&desktops_to_remove, node_desktop_to_remove);

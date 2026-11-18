@@ -6,4 +6,6 @@ A program to display minimized windows like Windows 3.x for Wayland compositor s
 
 Wrote in rush in less than two weeks (until 2026-11-10) so the code currently needed to be cleaned up.
 
-Tested on Arch Linux (Linux Kernel 7.2.14-arch1-1) with labwc 0.20.2
+Rewritten on 2026-11-18...
+
+Tested on Arch Linux (Linux Kernel 7.2.15-arch1-1) with labwc 0.20.2

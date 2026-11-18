@@ -91,6 +91,7 @@ struct desktop_icon
     bool send_to_front;
 
     // only consumed after rendering
+    bool reload_icon_from_toplevel_handle;
     bool redraw_content;
     bool redraw;
 };

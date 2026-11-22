@@ -10,9 +10,15 @@
             "cwd": "${workspaceFolder}",
             "environment": [
                 {
-                    "name": "ASAN_OPTIONS=",
+                    "name": "ASAN_OPTIONS",
                     "value": "abort_on_error=1"
+                },
+                /*
+                {
+                    "name": "WAYLAND_DISPLAY",
+                    "value": "wayland-1"
                 }
+                */
             ],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -45,7 +51,7 @@
             "cwd": "${workspaceFolder}",
             "environment": [
                 {
-                    "name": "ASAN_OPTIONS=",
+                    "name": "ASAN_OPTIONS",
                     "value": "abort_on_error=1"
                 }
             ],

@@ -674,14 +674,16 @@ static void toplevel_handle_state(
     }
 
     if (minimized_old != toplevel_handle->minimized)
+    {
         toplevel_handle->minimized_changed = true;
 
-    debug_printf(
-        "'%s' (%s) minimize state changed: %d -> %d\n",
-        debug_str_nullable(toplevel_handle->title),
-        debug_str_nullable(toplevel_handle->app_id),
-        minimized_old, toplevel_handle->minimized
-    );
+        debug_printf(
+            "'%s' (%s) minimize state changed: %d -> %d\n",
+            debug_str_nullable(toplevel_handle->title),
+            debug_str_nullable(toplevel_handle->app_id),
+            minimized_old, toplevel_handle->minimized
+        );
+    }
 }
 
 static void toplevel_handle_done(
